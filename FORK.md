@@ -57,15 +57,6 @@ Rules for resolving conflicts, for people and agents:
 - Push only when both merges are clean and checked. Pushing `ksg/dev` is what
   publishes a release once the release workflow is enabled.
 
-## Branches
-
-- `fork/main` mirrors the upstream nightly tag the fork is currently based on.
-- `ksg/passthrough` is that base plus exactly the patches below, nothing
-  else. It is rebased onto each new upstream tag and carries no other work.
-- `ksg/dev` is `ksg/passthrough` plus the fork's own customizations. Everyday
-  work happens on short-lived branches merged into it, and it is what the
-  release workflow should build; point its trigger at `ksg/dev`.
-
 ## Patches
 
 | What                                                                                                       | Why                                                                                                                                                                 | File                                                                                                        |
