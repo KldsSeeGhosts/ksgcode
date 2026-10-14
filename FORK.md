@@ -65,6 +65,7 @@ Rules for resolving conflicts, for people and agents:
 | The update gate asks GitHub whether `v<version>` is released here instead of asking npm for `t3@<version>` | Remote servers install the CLI archive from this repository's release; the fork does not publish to npm. The file keeps its upstream name to avoid rename conflicts | `apps/web/src/state/npmRelease.ts` (and its test), `apps/web/src/components/sidebar/useUpdateEverything.ts` |
 | Product name is `KSG Code` on every channel; artifacts are `KSG-Code-${version}-${arch}.${ext}`            | Branding of the bundle, installer, and release assets. Upstream forces `T3 Code (Nightly)` for nightly versions                                                     | `scripts/build-desktop-artifact.ts` (and its test)                                                          |
 | `T3CODE_MACOS_SELF_SIGNED=true` with `--signed` signs with a self-signed certificate                       | No Apple Developer account: no team ID, provisioning profile, or notarization                                                                                       | `scripts/build-desktop-artifact.ts`, `scripts/sign-macos.ts`                                                |
+| `ksg-release.yml`, and a self-signed branch in the macOS signing step of `release-desktop.yml`             | Publishes the fork's releases; signs with the `KSG_MACOS_P12` secret when Apple's secrets are absent                                                                | `.github/workflows/ksg-release.yml`, `.github/workflows/release-desktop.yml`                                |
 | A pointer to this file at the top of `AGENTS.md`                                                           | Agents working in the fork read the patch list and sync rules first                                                                                                 | `AGENTS.md`                                                                                                 |
 
 Not patched, on purpose: the desktop update feed already comes from
@@ -144,150 +145,27 @@ Code's requirement pins Apple's anchor and team `ARK85ZXQ4Z`, so its updater
 rejects KSG builds. Expect to re-grant macOS privacy permissions once, and a
 one-time Keychain prompt for `t3code Safe Storage`, which T3 Code created.
 
-## Release workflow (draft)
+## Release workflow
 
-The token used to push this repository lacks the `workflow` scope, so the
-workflow lives here until someone with that scope adds it as
-`.github/workflows/ksg-release.yml`. It replaces upstream's `release.yml` for
-this repository; disable upstream's scheduled workflows in the repository
-settings (they need upstream's runners and secrets).
+`.github/workflows/ksg-release.yml` publishes a nightly release from every push
+to `ksg/dev` (Markdown-only pushes are skipped), or on demand from the Actions
+tab. It computes the version (see Versions), builds the JS bundle once, then
+reuses upstream's `release-desktop.yml` for macOS arm64 and Linux x64, so
+upstream's build fixes arrive with each sync. Every KSG Code install and fork
+`t3` CLI then offers the release as an update.
 
-Secrets: `KSG_MACOS_P12` (base64 `.p12`), `KSG_MACOS_P12_PASSWORD`.
+One-time setup:
 
-```yaml
-name: KSG Release
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ksg/dev]
-
-concurrency:
-  group: ksg-release
-  cancel-in-progress: false
-
-permissions:
-  contents: read
-
-jobs:
-  preflight:
-    runs-on: ubuntu-24.04
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: Fetch upstream nightly tags
-        run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*-nightly.*:refs/tags/upstream/v*-nightly.*'
-      - id: version
-        name: Resolve fork version
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          upstream="$(git describe --tags --abbrev=0 --match 'upstream/v*-nightly.*' HEAD)"
-          upstream="${upstream#upstream/v}"
-          if [[ ! "$upstream" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-nightly\.([0-9]{8})\.([0-9]+)$ ]]; then
-            echo "Unexpected upstream tag: $upstream" >&2; exit 1
-          fi
-          base="${BASH_REMATCH[1]}"; date="${BASH_REMATCH[2]}"; run="${BASH_REMATCH[3]}"
-          prefix="v${base}-nightly.${date}."
-          used="$(gh release list --limit 200 --json tagName --jq '.[].tagName' \
-            | awk -v p="$prefix" -v r="$run" 'index($0, p) == 1 { n = substr($0, length(p) + 1); if (int(n / 100) == r) print n % 100 }' \
-            | sort -n | tail -1)"
-          counter=$(( ${used:-0} + 1 ))
-          if (( counter > 99 )); then echo "Fork counter exhausted for $upstream" >&2; exit 1; fi
-          version="${base}-nightly.${date}.$(( run * 100 + counter ))"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-
-  build:
-    needs: preflight
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - { runner: macos-15, platform: mac, target: dmg, arch: arm64, cli: darwin-arm64 }
-          - { runner: ubuntu-24.04, platform: linux, target: AppImage, arch: x64, cli: linux-x64 }
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: voidzero-dev/setup-vp@v1
-        with:
-          node-version-file: package.json
-          cache: true
-          run-install: true
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Linux packaging tools
-        if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
-      - name: Import self-signed certificate
-        if: matrix.platform == 'mac'
-        env:
-          P12: ${{ secrets.KSG_MACOS_P12 }}
-          P12_PASSWORD: ${{ secrets.KSG_MACOS_P12_PASSWORD }}
-        run: |
-          keychain="$RUNNER_TEMP/ksg-signing.keychain-db"
-          keychain_password="$(openssl rand -hex 16)"
-          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/ksg.p12"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/ksg.p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
-          rm "$RUNNER_TEMP/ksg.p12"
-          echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
-          echo "T3CODE_MACOS_SELF_SIGNED=true" >> "$GITHUB_ENV"
-      - name: Build desktop app
-        env:
-          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
-        run: |
-          node scripts/build-desktop-artifact.ts \
-            --platform ${{ matrix.platform }} --target ${{ matrix.target }} --arch ${{ matrix.arch }} \
-            --build-version ${{ needs.preflight.outputs.version }} \
-            ${{ matrix.platform == 'mac' && '--signed' || '' }} \
-            --output-dir release
-      - name: Build CLI archive
-        # Same invocation as upstream's release-desktop.yml cli_archive step;
-        # copy it from there when rebasing, it changes with upstream.
-        run: node scripts/build-cli-archive.ts --version ${{ needs.preflight.outputs.version }} --platform-key ${{ matrix.cli }} --output-dir release
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release-${{ matrix.cli }}
-          path: release/*
-          if-no-files-found: error
-
-  release:
-    needs: [preflight, build]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: release-*
-          merge-multiple: true
-          path: release
-      - name: Checksums
-        working-directory: release
-        run: sha256sum t3-*.tar.gz > SHA256SUMS
-      - name: Publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ needs.preflight.outputs.tag }}" release/* \
-            --target "$GITHUB_SHA" --prerelease \
-            --title "KSG Code ${{ needs.preflight.outputs.version }}" \
-            --notes "Upstream T3 Code with the patches in FORK.md."
-```
-
-Check the CLI archive step and the manifest names (`nightly-mac.yml`,
-`nightly-linux.yml`) against upstream's `release-desktop.yml` and the
-`release` job in `release.yml` before enabling it; upstream merges per-arch
-manifests with `scripts/merge-update-manifests.ts`, which a single arch per
-platform does not need.
+- Secrets `KSG_MACOS_P12` (the base64 `.p12`) and `KSG_MACOS_P12_PASSWORD`. Use
+  the certificate the installed apps are signed with, or they reject updates.
+- In the Actions tab, disable every upstream workflow except
+  `release-desktop.yml`, which `ksg-release.yml` calls. Upstream's workflows need
+  upstream's runners and secrets and only fail here.
+- Pushing workflow files needs a token with the `workflow` scope
+  (`gh auth refresh -h github.com -s workflow`).
+- Optional repository variables `KSG_RELAY_URL`, `KSG_CLERK_PUBLISHABLE_KEY`,
+  `KSG_CLERK_JWT_TEMPLATE`, and `KSG_CLERK_CLI_OAUTH_CLIENT_ID` enable T3 Connect
+  in the build; without them it is left out, as in a local build.
 
 ## Server cutover
 

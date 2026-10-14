@@ -1,0 +1,195 @@
+name: KSG Release
+
+# KSG Code fork (see FORK.md): publishes a nightly release of ksg/dev for
+# macOS arm64 and Linux x64. Each platform build reuses upstream's
+# release-desktop.yml, so build changes arrive with each upstream sync.
+
+on:
+  push:
+    branches: [ksg/dev]
+    paths-ignore: ["**.md"]
+  workflow_dispatch:
+
+concurrency:
+  group: ksg-release
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  preflight:
+    name: Resolve version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      ref: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: FORK.md
+
+      # Upstream tags go under upstream/ so the fork's own release tags,
+      # which share the v*-nightly.* shape, never match.
+      - name: Fetch upstream nightly tags
+        run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*-nightly.*:refs/tags/upstream/v*-nightly.*'
+
+      # N = upstream run number * 100 + fork counter (see FORK.md, Versions).
+      - id: version
+        name: Resolve fork version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          upstream="$(git describe --tags --abbrev=0 --match 'upstream/v*-nightly.*' HEAD)"
+          upstream="${upstream#upstream/v}"
+          if [[ ! "$upstream" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-nightly\.([0-9]{8})\.([0-9]+)$ ]]; then
+            echo "Unexpected upstream tag: $upstream" >&2
+            exit 1
+          fi
+          base="${BASH_REMATCH[1]}"
+          date="${BASH_REMATCH[2]}"
+          run="${BASH_REMATCH[3]}"
+          prefix="v${base}-nightly.${date}."
+          used="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName --jq '.[].tagName' \
+            | awk -v p="$prefix" -v r="$run" 'index($0, p) == 1 { n = substr($0, length(p) + 1); if (int(n / 100) == r) print n % 100 }' \
+            | sort -n | tail -1)"
+          counter=$(( ${used:-0} + 1 ))
+          if (( counter > 99 )); then
+            echo "Fork counter exhausted for $upstream" >&2
+            exit 1
+          fi
+          version="${base}-nightly.${date}.$(( run * 100 + counter ))"
+          echo "Upstream $upstream -> KSG $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  build_bundle:
+    name: Build JS bundle
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.KSG_CLERK_PUBLISHABLE_KEY }}
+      T3CODE_CLERK_JWT_TEMPLATE: ${{ vars.KSG_CLERK_JWT_TEMPLATE }}
+      T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.KSG_CLERK_CLI_OAUTH_CLIENT_ID }}
+      T3CODE_RELAY_URL: ${{ vars.KSG_RELAY_URL }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+      - run: vp install --filter=t3... --filter=@t3tools/web... --filter=@t3tools/desktop... --filter=@t3tools/scripts...
+      - run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
+      - run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config
+      - run: vp run build:desktop
+      - uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
+
+  desktop_mac_arm64:
+    name: Desktop macOS arm64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: macOS arm64
+      runner: macos-15
+      platform: mac
+      target: dmg
+      arch: arm64
+      rust_target: aarch64-apple-darwin
+      resource_key: darwin-arm64
+      cli_archive: true
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ needs.preflight.outputs.ref }}
+      release_channel: nightly
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ vars.KSG_CLERK_PUBLISHABLE_KEY }}
+      clerk_jwt_template: ${{ vars.KSG_CLERK_JWT_TEMPLATE }}
+      clerk_cli_oauth_client_id: ${{ vars.KSG_CLERK_CLI_OAUTH_CLIENT_ID }}
+      relay_url: ${{ vars.KSG_RELAY_URL }}
+
+  desktop_linux_x64:
+    name: Desktop Linux x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: Linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ needs.preflight.outputs.ref }}
+      release_channel: nightly
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ vars.KSG_CLERK_PUBLISHABLE_KEY }}
+      clerk_jwt_template: ${{ vars.KSG_CLERK_JWT_TEMPLATE }}
+      clerk_cli_oauth_client_id: ${{ vars.KSG_CLERK_CLI_OAUTH_CLIENT_ID }}
+      relay_url: ${{ vars.KSG_RELAY_URL }}
+
+  release:
+    name: Publish GitHub release
+    needs: [preflight, desktop_mac_arm64, desktop_linux_x64]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: release-assets
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: release-assets
+      # Installers verify archives against this file.
+      - name: Write CLI archive checksums
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          sha256sum t3-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(release-assets/*.dmg release-assets/*.zip release-assets/*.AppImage release-assets/*.deb \
+            release-assets/*.blockmap release-assets/*.tar.gz release-assets/SHA256SUMS)
+          for manifest in release-assets/*.yml; do
+            [[ "$manifest" == */builder-debug.yml ]] || files+=("$manifest")
+          done
+          gh release create "$TAG" "${files[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "KSG Code $VERSION" \
+            --generate-notes
