@@ -7,8 +7,55 @@ the `t3` CLI, `~/.t3`, the `T3CODE_*` variables, the `t3code://` scheme, the
 desktop app ID `com.t3tools.t3code`, and the Electron profile folder are
 unchanged, so KSG Code and T3 Code share state and cannot run side by side.
 
-`fork/main` tracks an upstream nightly tag. Rebase the patches onto each new
-upstream tag; every patch below is meant to conflict rarely.
+## Branches
+
+This repository has exactly three branches.
+
+- `upstream` is upstream's code at the nightly tag the fork is based on. It
+  only ever fast-forwards to a newer upstream nightly tag; nothing is
+  committed to it.
+- `ksg/passthrough` is `upstream` plus exactly the patches below (and this
+  file). `git diff upstream ksg/passthrough` is the complete patch set.
+- `ksg/dev` is the default branch: `ksg/passthrough` plus the fork's own
+  customizations. Clone it, work on short-lived branches off it, and merge
+  them back. The release workflow builds it.
+
+Branches only move forward by merges, never by rebase or force-push, so every
+machine can always `git pull`. Do not use GitHub's "Sync fork" button: it
+merges upstream's `main`, not a nightly tag, into `ksg/dev`.
+
+## Syncing with upstream
+
+Run this when upstream publishes a new nightly, or ask an agent to "sync KSG
+Code with the latest upstream nightly per FORK.md". Conflicts are resolved
+once per layer: patches in `ksg/passthrough`, customizations in `ksg/dev`.
+
+```sh
+git remote add t3code https://github.com/pingdotgg/t3code.git  # once per clone
+git config rerere.enabled true                                 # once per clone
+git fetch origin && git fetch t3code --tags
+tag="$(git tag -l 'v*-nightly.*' --sort=-v:refname | head -1)"
+
+git switch upstream && git merge --ff-only origin/upstream && git merge --ff-only "$tag"
+git switch ksg/passthrough && git merge --ff-only origin/ksg/passthrough && git merge --no-edit upstream
+git switch ksg/dev && git merge --ff-only origin/ksg/dev && git merge --no-edit ksg/passthrough
+vp i
+git push origin upstream ksg/passthrough ksg/dev
+```
+
+Rules for resolving conflicts, for people and agents:
+
+- Upstream wins everywhere except the intent of a patch in the table below or
+  a customization on `ksg/dev`. Re-apply that intent to upstream's new code
+  rather than restoring the old lines.
+- Never drop a patch to make a conflict go away. If upstream removed the code
+  a patch changed, find where the behavior moved; if it is gone, update the
+  table and say so in the merge commit.
+- After each merge, typecheck the affected packages and run the tests for the
+  files the conflicts touched (`vp test run <files>`; see AGENTS.md). Do not
+  run repo-wide checks.
+- Push only when both merges are clean and checked. Pushing `ksg/dev` is what
+  publishes a release once the release workflow is enabled.
 
 ## Branches
 
@@ -27,6 +74,7 @@ upstream tag; every patch below is meant to conflict rarely.
 | The update gate asks GitHub whether `v<version>` is released here instead of asking npm for `t3@<version>` | Remote servers install the CLI archive from this repository's release; the fork does not publish to npm. The file keeps its upstream name to avoid rename conflicts | `apps/web/src/state/npmRelease.ts` (and its test), `apps/web/src/components/sidebar/useUpdateEverything.ts` |
 | Product name is `KSG Code` on every channel; artifacts are `KSG-Code-${version}-${arch}.${ext}`            | Branding of the bundle, installer, and release assets. Upstream forces `T3 Code (Nightly)` for nightly versions                                                     | `scripts/build-desktop-artifact.ts` (and its test)                                                          |
 | `T3CODE_MACOS_SELF_SIGNED=true` with `--signed` signs with a self-signed certificate                       | No Apple Developer account: no team ID, provisioning profile, or notarization                                                                                       | `scripts/build-desktop-artifact.ts`, `scripts/sign-macos.ts`                                                |
+| A pointer to this file at the top of `AGENTS.md`                                                           | Agents working in the fork read the patch list and sync rules first                                                                                                 | `AGENTS.md`                                                                                                 |
 
 Not patched, on purpose: the desktop update feed already comes from
 `GITHUB_REPOSITORY` (or `T3CODE_DESKTOP_UPDATE_REPOSITORY`) at build time, so a
@@ -121,7 +169,7 @@ name: KSG Release
 on:
   workflow_dispatch:
   push:
-    branches: [fork/main]
+    branches: [ksg/dev]
 
 concurrency:
   group: ksg-release
