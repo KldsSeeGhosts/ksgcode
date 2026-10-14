@@ -35,6 +35,11 @@ on:
         required: false
       AZURE_TRUSTED_SIGNING_PUBLISHER_NAME:
         required: false
+      # KSG Code fork: self-signed macOS signing (see FORK.md).
+      KSG_MACOS_P12:
+        required: false
+      KSG_MACOS_P12_PASSWORD:
+        required: false
     inputs:
       label:
         required: true
@@ -424,6 +429,8 @@ jobs:
           AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
           AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
           AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
+          KSG_MACOS_P12: ${{ secrets.KSG_MACOS_P12 }}
+          KSG_MACOS_P12_PASSWORD: ${{ secrets.KSG_MACOS_P12_PASSWORD }}
         run: |
           args=(
             --platform "${{ inputs.platform }}"
@@ -461,6 +468,20 @@ jobs:
               export T3CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
 
               echo "macOS signing enabled."
+              args+=(--signed)
+            elif has_all "$KSG_MACOS_P12" "$KSG_MACOS_P12_PASSWORD"; then
+              # KSG Code fork: sign with the self-signed certificate (see FORK.md).
+              keychain="$RUNNER_TEMP/ksg-signing.keychain-db"
+              keychain_password="$(openssl rand -hex 16)"
+              printf '%s' "$KSG_MACOS_P12" | base64 --decode > "$RUNNER_TEMP/ksg.p12"
+              security create-keychain -p "$keychain_password" "$keychain"
+              security set-keychain-settings -lut 21600 "$keychain"
+              security unlock-keychain -p "$keychain_password" "$keychain"
+              security import "$RUNNER_TEMP/ksg.p12" -k "$keychain" -P "$KSG_MACOS_P12_PASSWORD" -T /usr/bin/codesign
+              security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+              rm "$RUNNER_TEMP/ksg.p12"
+              export CSC_KEYCHAIN="$keychain" T3CODE_MACOS_SELF_SIGNED=true
+              echo "macOS self-signed signing enabled."
               args+=(--signed)
             else
               echo "macOS signing disabled (missing one or more Apple signing secrets)."
