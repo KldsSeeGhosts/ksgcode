@@ -22,7 +22,12 @@ import * as Semaphore from "effect/Semaphore";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
-import { AcpRegistryAdapterV2Driver, type AcpRegistryAdapterV2DriverEnv } from "./adapter.ts";
+import {
+  makeAcpAgentAdapterV2Driver,
+  type AcpAgentDriverDefinition,
+  type AcpRegistryAdapterV2DriverEnv,
+} from "./adapter.ts";
+import { acpAgentSlashCommands, type AcpAgentProfile } from "./agentProfile.ts";
 import type { ProviderTextGeneration } from "@t3tools/provider-core/server/textGeneration";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
@@ -30,6 +35,7 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
+  type ProviderDriverMetadata,
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import { providerModelsFromSettings } from "@t3tools/provider-core/server/snapshotProbe";
@@ -65,10 +71,6 @@ const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
 // is detected on the next refresh.
 const PROBE_SUCCESS_TTL_MS = 15 * 60 * 1_000;
 const EMPTY_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
-const MAINTENANCE = makeManualOnlyProviderMaintenanceCapabilities({
-  provider: DRIVER_KIND,
-  packageName: null,
-});
 
 const makeUnsupportedTextGeneration = (): ProviderTextGeneration => {
   const unsupported = (operation: string) =>
@@ -125,6 +127,7 @@ export function acpRegistrySnapshotReadiness(
   inspection:
     | AcpRegistrySupport.AcpRegistryInspection
     | { readonly status: "failed"; readonly message: string },
+  profile?: AcpAgentProfile,
 ): Pick<ServerProvider, "installed" | "version" | "status" | "message"> {
   switch (inspection.status) {
     case "ready":
@@ -158,7 +161,7 @@ export function acpRegistrySnapshotReadiness(
         status: "error",
         message:
           inspection.distribution === "local"
-            ? "Local ACP executable is not available on this environment's PATH."
+            ? `${profile?.displayName ?? "Local ACP"} executable is not available on this environment's PATH.`
             : `ACP executable '${inspection.runner}' is not available on this environment's PATH.`,
       };
     case "unprepared":
@@ -179,6 +182,7 @@ export function acpRegistrySnapshotReadiness(
 }
 
 interface SnapshotIdentity {
+  readonly profile?: AcpAgentProfile;
   readonly instanceId: ProviderInstance["instanceId"];
   readonly displayName: string | undefined;
   readonly accentColor: string | undefined;
@@ -206,7 +210,8 @@ function baseSnapshot(
         officialAcpRegistryIconUrlForAgentId(input.settings.agentId));
   return {
     instanceId: input.instanceId,
-    driver: DRIVER_KIND,
+    driver: input.profile?.driverKind ?? DRIVER_KIND,
+    ...(input.profile?.reportsContextWindow === true ? { reportsContextWindow: true } : {}),
     ...(input.displayName ? { displayName: input.displayName } : {}),
     ...(input.accentColor ? { accentColor: input.accentColor } : {}),
     ...(iconUrl ? { iconUrl } : {}),
@@ -245,7 +250,7 @@ function baseSnapshot(
           },
           configurableProviders: input.probe.probe.sessionManagement.canConfigureProviders,
         }),
-    slashCommands: input.probe?.slashCommands ?? [],
+    slashCommands: acpAgentSlashCommands(input.profile, input.probe?.slashCommands ?? []),
     skills: input.probe?.skills ?? [],
   };
 }
@@ -253,10 +258,15 @@ function baseSnapshot(
 export function applyAcpRegistryAvailableCommands(
   provider: ServerProvider,
   commands: Option.Option<AcpRegistryAvailableCommands>,
+  profile?: AcpAgentProfile,
 ): ServerProvider {
   return Option.match(commands, {
     onNone: () => provider,
-    onSome: ({ slashCommands, skills }) => ({ ...provider, slashCommands, skills }),
+    onSome: ({ slashCommands, skills }) => ({
+      ...provider,
+      slashCommands: acpAgentSlashCommands(profile, slashCommands),
+      skills,
+    }),
   });
 }
 
@@ -298,8 +308,8 @@ const buildInitialAcpRegistrySnapshot = Effect.fn("AcpRegistryDriver.buildInitia
       status: "warning",
       auth: { status: "unknown" },
       message: input.settings.enabled
-        ? "Checking ACP Registry agent readiness..."
-        : "ACP Registry is disabled in T3 Code settings.",
+        ? `Checking ${input.profile?.displayName ?? "ACP Registry agent"} readiness...`
+        : `${input.profile?.displayName ?? "ACP Registry"} is disabled in T3 Code settings.`,
     });
   },
 );
@@ -315,7 +325,7 @@ export function buildCheckedAcpRegistrySnapshot(
     readonly probeError?: AcpRegistryOperationError;
   },
 ): ServerProvider {
-  const readiness = acpRegistrySnapshotReadiness(input.inspection);
+  const readiness = acpRegistrySnapshotReadiness(input.inspection, input.profile);
   const probeFailed = input.probeError !== undefined;
   const advertisedAuthMethod =
     input.probeError?.reason === "authentication_failed"
@@ -458,18 +468,23 @@ export const checkAcpRegistryProviderReadiness = Effect.fn(
 
 export type AcpRegistryDriverEnv = AcpRegistryAdapterV2DriverEnv | ProviderHost.ProviderHost;
 
-/** Canonical provider-instance wrapper for ACP Registry orchestration adapters. */
-export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryDriverEnv> = {
-  driverKind: DRIVER_KIND,
-  metadata: {
-    displayName: "ACP Registry",
-    supportsMultipleInstances: true,
-    hasDefaultInstance: false,
-  },
-  configSchema: AcpRegistrySettings,
-  defaultConfig: () => decodeSettings({}),
-  create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
+/**
+ * Builds a provider driver on the registry's local-command machinery. The
+ * registry itself is one; dedicated ACP agents pass their own profile.
+ */
+export const makeAcpAgentDriver = <Settings>(
+  definition: AcpAgentDriverDefinition<Settings> & { readonly metadata: ProviderDriverMetadata },
+): ProviderDriver<Settings, AcpRegistryDriverEnv> => ({
+  driverKind: definition.profile?.driverKind ?? DRIVER_KIND,
+  metadata: definition.metadata,
+  configSchema: definition.configSchema,
+  defaultConfig: definition.defaultConfig,
+  create: ({ instanceId, displayName, accentColor, environment, enabled, config: agentConfig }) =>
     Effect.gen(function* () {
+      const { profile } = definition;
+      const driverKind = profile?.driverKind ?? DRIVER_KIND;
+      const label = profile?.displayName ?? "ACP Registry";
+      const config = definition.toRegistrySettings(agentConfig);
       const catalog = yield* AcpRegistrySupport.AcpRegistryCatalog;
       const runtimeCoordinator = yield* Effect.serviceOption(
         AcpRegistryRuntimeCoordinator.AcpRegistryRuntimeCoordinator,
@@ -488,10 +503,11 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       const hostEnvironment = yield* HostProcess.Environment;
       const host = yield* ProviderHost.ProviderHost;
       const continuationIdentity = defaultProviderContinuationIdentity({
-        driverKind: DRIVER_KIND,
+        driverKind,
         instanceId,
       });
       const identity = {
+        ...(profile === undefined ? {} : { profile }),
         instanceId,
         displayName,
         accentColor,
@@ -502,24 +518,26 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         environment,
         hostEnvironment,
       );
-      const orchestrationAdapter = yield* AcpRegistryAdapterV2Driver.create({
-        instanceId,
-        displayName,
-        accentColor,
-        environment,
-        enabled,
-        config,
-      }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderDriverError({
-              driver: DRIVER_KIND,
-              instanceId,
-              detail: "Failed to build ACP Registry orchestration adapter.",
-              cause,
-            }),
-        ),
-      );
+      const orchestrationAdapter = yield* makeAcpAgentAdapterV2Driver(definition)
+        .create({
+          instanceId,
+          displayName,
+          accentColor,
+          environment,
+          enabled,
+          config: agentConfig,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderDriverError({
+                driver: driverKind,
+                instanceId,
+                detail: `Failed to build ${label} orchestration adapter.`,
+                cause,
+              }),
+          ),
+        );
       const readinessInput = {
         ...identity,
         settings: effectiveConfig,
@@ -551,7 +569,11 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                 authAction: runtimeCoordinator.value.getUrlAuthAction(instanceId),
               }).pipe(
                 Effect.map(({ commands, configuration, authAction }) => {
-                  const withCommands = applyAcpRegistryAvailableCommands(provider, commands);
+                  const withCommands = applyAcpRegistryAvailableCommands(
+                    provider,
+                    commands,
+                    profile,
+                  );
                   const withConfiguration = Option.match(configuration, {
                     onNone: () => withCommands,
                     onSome: (liveConfiguration) =>
@@ -627,7 +649,13 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       const snapshot = yield* makeManagedServerProvider<
         ProviderSnapshotSettings<AcpRegistrySettings>
       >({
-        resolveMaintenance: () => Effect.succeed(MAINTENANCE),
+        resolveMaintenance: () =>
+          Effect.succeed(
+            makeManualOnlyProviderMaintenanceCapabilities({
+              provider: driverKind,
+              packageName: null,
+            }),
+          ),
         getSettings: snapshotSettings.getSettings,
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,
@@ -671,7 +699,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                   Effect.flatMap((current) =>
                     publishSnapshot({
                       ...current,
-                      slashCommands,
+                      slashCommands: acpAgentSlashCommands(profile, slashCommands),
                       skills,
                     }),
                   ),
@@ -725,9 +753,9 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         Effect.mapError(
           (cause) =>
             new ProviderDriverError({
-              driver: DRIVER_KIND,
+              driver: driverKind,
               instanceId,
-              detail: "Failed to build the ACP Registry provider snapshot.",
+              detail: `Failed to build the ${label} provider snapshot.`,
               cause,
             }),
         ),
@@ -796,7 +824,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
 
       return {
         instanceId,
-        driverKind: DRIVER_KIND,
+        driverKind,
         continuationIdentity,
         displayName,
         accentColor,
@@ -904,4 +932,16 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
         },
       } satisfies ProviderInstance;
     }),
-};
+});
+
+/** Canonical provider-instance wrapper for ACP Registry orchestration adapters. */
+export const AcpRegistryDriver = makeAcpAgentDriver<AcpRegistrySettings>({
+  metadata: {
+    displayName: "ACP Registry",
+    supportsMultipleInstances: true,
+    hasDefaultInstance: false,
+  },
+  configSchema: AcpRegistrySettings,
+  defaultConfig: () => decodeSettings({}),
+  toRegistrySettings: (settings) => settings,
+});
