@@ -2743,11 +2743,16 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
-export function resolveDesktopProductName(version: string): string {
-  return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+// KSG Code fork: one product name for every channel (see FORK.md).
+export function resolveDesktopProductName(_version: string): string {
+  return "KSG Code";
 }
+
+// KSG Code fork: with --signed, sign macOS builds with the self-signed
+// certificate in CSC_LINK instead of a Developer ID (see FORK.md).
+const MacSelfSignedConfig = Config.Boolean("T3CODE_MACOS_SELF_SIGNED").pipe(
+  Config.withDefault(false),
+);
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
@@ -2771,7 +2776,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const buildConfig: Record<string, unknown> = {
     appId: DESKTOP_APP_ID,
     productName: resolveDesktopProductName(version),
-    artifactName: "T3-Code-${version}-${arch}.${ext}",
+    artifactName: "KSG-Code-${version}-${arch}.${ext}",
     electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     files: [
       ...DESKTOP_FILE_EXCLUSIONS,
@@ -2852,6 +2857,9 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
+      // "-" gets past electron-builder's lookup, which only accepts trusted
+      // identities; sign-macos.ts swaps in the certificate from CSC_LINK.
+      ...(signed && (yield* MacSelfSignedConfig) ? { identity: "-", notarize: false } : {}),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
@@ -3798,8 +3806,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stageProdResourcesDir = path.join(stageAppDir, "apps/desktop/prod-resources");
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
 
+  const macSelfSigned = options.platform === "mac" && (yield* MacSelfSignedConfig);
   const configuredMacPasskeySigning =
-    options.platform === "mac" && options.signed
+    options.platform === "mac" && options.signed && !macSelfSigned
       ? yield* Effect.try({
           try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
@@ -3980,6 +3989,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     // fpm compresses the .deb with the system xz through tar. Threaded mode
     // takes seconds on a many-core runner instead of about two minutes.
     buildEnv.XZ_DEFAULTS = "-T0";
+  }
+  if (options.signed && macSelfSigned) {
+    buildEnv.T3CODE_MACOS_SELF_SIGNED = "true";
   }
   if (!options.signed) {
     buildEnv.CSC_IDENTITY_AUTO_DISCOVERY = "false";
