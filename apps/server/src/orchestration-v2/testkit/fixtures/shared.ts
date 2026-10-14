@@ -400,6 +400,11 @@ export const ACP_REGISTRY_MODEL_SELECTION = {
   model: "default",
 } satisfies ModelSelection;
 
+export const HERMES_MODEL_SELECTION = {
+  instanceId: ProviderInstanceId.make("hermes"),
+  model: "default",
+} satisfies ModelSelection;
+
 export const READ_ONLY_ON_REQUEST_POLICY = {
   approvalPolicy: "on-request",
   sandboxPolicy: {

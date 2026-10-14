@@ -33,6 +33,7 @@ import {
 } from "./probe.ts";
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
+import type { AcpAgentProfile } from "./agentProfile.ts";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import { makeAcpNativeLoggerFactory } from "@t3tools/provider-acp/server/nativeLogging";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -61,6 +62,8 @@ const isAcpRequestError = Schema.is(EffectAcpErrors.AcpRequestError);
 export interface AcpRegistryAdapterV2Options {
   readonly instanceId: Parameters<typeof makeAcpAdapterV2>[0]["instanceId"];
   readonly settings: AcpRegistrySettings;
+  /** Set when a dedicated agent driver runs this adapter under its own kind. */
+  readonly profile?: AcpAgentProfile;
   readonly environment: NodeJS.ProcessEnv;
   readonly selfInvocation: SelfInvocation;
   readonly nativeLogging?: Parameters<typeof makeAcpAdapterV2>[0]["nativeLogging"];
@@ -153,7 +156,9 @@ function makeAcpRegistryRuntime(
           Effect.mapError(
             (cause) =>
               new EffectAcpErrors.AcpSpawnError({
-                command: options.settings.agentId || ACP_REGISTRY_PROVIDER,
+                command:
+                  options.settings.agentId ||
+                  (options.profile?.driverKind ?? ACP_REGISTRY_PROVIDER),
                 cause,
               }),
           ),
@@ -198,8 +203,9 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
       /^copilot(\.exe|\.cmd)?$/i.test(options.settings.commandPath.split(/[\\/]/).pop() ?? ""));
   const copilotRouting = isCopilot ? makeCopilotSubagentRouting() : undefined;
   const flavor: AcpAdapterV2Flavor = {
-    driver: ACP_REGISTRY_PROVIDER,
+    driver: options.profile?.driverKind ?? ACP_REGISTRY_PROVIDER,
     capabilities: AcpProviderCapabilitiesV2,
+    ...options.profile?.flavor,
     promptFailure: (cause) => acpRegistryPromptFailure(registryAgentId, cause),
     // Per-agent exceptions (Mistral Vibe, Devin, Copilot): see the note above
     // registerMistralVibeAcpExtensions before adding any more.
@@ -285,28 +291,37 @@ export type AcpRegistryAdapterV2DriverEnv =
   | ProviderEventLoggers.ProviderEventLoggers
   | ProviderHost.ProviderHost;
 
-export const AcpRegistryAdapterV2Driver: ProviderAdapterDriver<
-  AcpRegistrySettings,
-  AcpRegistryAdapterV2DriverEnv
-> = {
-  driverKind: ACP_REGISTRY_PROVIDER,
-  configSchema: AcpRegistrySettings,
-  defaultConfig: (): AcpRegistrySettings => DEFAULT_ACP_REGISTRY_SETTINGS,
+/** What a dedicated agent driver supplies to run on the registry's local-command machinery. */
+export interface AcpAgentDriverDefinition<Settings> {
+  readonly profile?: AcpAgentProfile;
+  readonly configSchema: Schema.Codec<Settings, unknown>;
+  readonly defaultConfig: () => Settings;
+  /** Maps the agent's own settings onto a local registry command. */
+  readonly toRegistrySettings: (settings: Settings) => AcpRegistrySettings;
+}
+
+export const makeAcpAgentAdapterV2Driver = <Settings>(
+  definition: AcpAgentDriverDefinition<Settings>,
+): ProviderAdapterDriver<Settings, AcpRegistryAdapterV2DriverEnv> => ({
+  driverKind: definition.profile?.driverKind ?? ACP_REGISTRY_PROVIDER,
+  configSchema: definition.configSchema,
+  defaultConfig: definition.defaultConfig,
   create: Effect.fn("AcpRegistryAdapterV2Driver.create")(
-    function* (input: ProviderAdapterDriverCreateInput<AcpRegistrySettings>) {
+    function* (input: ProviderAdapterDriverCreateInput<Settings>) {
       const hostEnvironment = yield* HostProcess.Environment;
       const selfInvocation = yield* resolveSelfInvocation();
       const providerEventLoggers = yield* ProviderEventLoggers.ProviderEventLoggers;
       const makeNativeLogger = yield* makeAcpNativeLoggerFactory();
       return yield* makeAcpRegistryAdapterV2({
         instanceId: input.instanceId,
-        settings: { ...input.config, enabled: input.enabled },
+        settings: { ...definition.toRegistrySettings(input.config), enabled: input.enabled },
+        ...(definition.profile === undefined ? {} : { profile: definition.profile }),
         environment: yield* mergeProviderInstanceEnvironment(input.environment, hostEnvironment),
         selfInvocation,
         nativeLogging: (threadId) =>
           makeNativeLogger({
             nativeEventLogger: providerEventLoggers.native,
-            provider: ACP_REGISTRY_PROVIDER,
+            provider: definition.profile?.driverKind ?? ACP_REGISTRY_PROVIDER,
             threadId,
           }),
       });
@@ -316,12 +331,18 @@ export const AcpRegistryAdapterV2Driver: ProviderAdapterDriver<
         Effect.mapError(
           (cause) =>
             new ProviderAdapterDriverCreateError({
-              driver: ACP_REGISTRY_PROVIDER,
+              driver: definition.profile?.driverKind ?? ACP_REGISTRY_PROVIDER,
               instanceId: input.instanceId,
-              detail: "Failed to create ACP Registry adapter.",
+              detail: `Failed to create ${definition.profile?.displayName ?? "ACP Registry"} adapter.`,
               cause,
             }),
         ),
       ),
   ),
-};
+});
+
+export const AcpRegistryAdapterV2Driver = makeAcpAgentAdapterV2Driver<AcpRegistrySettings>({
+  configSchema: AcpRegistrySettings,
+  defaultConfig: (): AcpRegistrySettings => DEFAULT_ACP_REGISTRY_SETTINGS,
+  toRegistrySettings: (settings) => settings,
+});

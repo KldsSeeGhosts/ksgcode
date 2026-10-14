@@ -1,0 +1,27 @@
+/**
+ * Hermes's client definition: settings form, label, and glyph. Browser- and
+ * React Native-safe.
+ *
+ * @module provider-hermes/client
+ */
+import { ProviderDriverKind } from "@t3tools/contracts";
+import { defineProviderClient } from "@t3tools/provider-core/client";
+
+import { HermesSettings } from "./settings.ts";
+
+export const hermesClient = defineProviderClient({
+  driverKind: ProviderDriverKind.make("hermes"),
+  label: "Hermes",
+  settingsSchema: HermesSettings,
+  // Simplified from Hermes Agent's character illustration so it reads at 16px.
+  icon: {
+    viewBox: "0 0 24 24",
+    fill: { light: "#0F0F0F", dark: "#F5F5F5" },
+    paths: [
+      {
+        d: "M11.93 1.19L13.43 2.39L15.34 4.73L15.77 4.3L16.25 4.63L16.81 4.51L17.69 3.77L14.74 1.72L12.09 1.01ZM10.14 1.72L7.69 2.39L6.08 3.29L4.26 4.94L5.2 5.8L3.29 6.55L2.8 8.58L3.36 9.76L4.84 10.98L4.87 15.53L4.64 16.52L4.11 16.76L3.32 18.15L2.05 17.76L2.12 18.81L2.6 19.35L3.37 19.42L5.09 18.26L4.48 19.28L3.27 20.05L4.84 20.73L5.99 19.48L5.67 20.44L4.81 21.41L5.68 21.69L6.52 21.37L6.15 22.96L9.1 22.84L10.13 22.42L10.07 22.88L10.33 22.92L13.27 21.35L15.63 20.66L19.24 20.87L20.47 22.15L21.33 21.33L21.93 19.61L21.72 17.15L19.45 7.79L18.39 5.23L18.16 4.94L17.63 5.31L17.61 5L16.31 4.85L16.31 5.43L15.26 5.05L15.43 7.16L15.9 7.68L15.39 7.35L15.24 6.46L14.46 6.55L14.28 6.79L14.63 7.21L14.31 7.09L13.62 5.29L12.45 4.1L12.19 4.87L11.13 4.98L11.21 5.74L10.66 5.98L9.47 5.7L9.27 5.32L10.07 4.84L10.37 3.86L11 4.56L11.46 3.82L12.26 3.69L13.49 4.72L12 2.7L10.24 1.56ZM5.77 4.95L5.59 6.01L5.96 5.43L6.29 5.82L7.64 5.73L7.65 5L8.32 5.67L9.02 5.58L8.99 5.23L8.29 4.84L7.04 5.3L6.16 5.09L6.3 4.3L5.95 4.69ZM6.06 8.87L6.22 9.43L4.98 10.27L6.12 10.86L5.17 13.1L6.1 16.03L7.15 17.61L10.11 17.81L11.1 18.54L11.48 18.36L12.22 16.32L12.42 12.01L12.18 9.82L11.39 9.31L9.19 9.06L7.52 9.7L7.52 9.33L6.81 9.3L5.77 8.31ZM8.23 9.69L8.03 10.39L8.46 10.29L8.81 10.81L9.46 10.84L9.82 10.38L10.48 10.77L10.65 10.42L10.16 10.07L8.33 9.6ZM13.69 17.37L13.24 18.19L14.08 18.29L14.43 17.56L14.22 17.21L13.81 17.31ZM11.04 19.45L9.93 20.23L10.88 22.05L13.34 20.7L11.64 18.83Z",
+        fillRule: "evenodd",
+      },
+    ],
+  },
+});

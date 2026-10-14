@@ -31,7 +31,10 @@ import { CursorDriver, type CursorDriverEnv } from "@t3tools/provider-cursor/ser
 import { GrokDriver, type GrokDriverEnv } from "@t3tools/provider-grok/server";
 import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-opencode/server";
 import { MuseDriver, type MuseDriverEnv } from "@t3tools/provider-muse/server";
+import { HermesDriver } from "@t3tools/provider-hermes/server";
+import { OmpDriver } from "@t3tools/provider-omp/server";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
+import { ZcodeDriver } from "@t3tools/provider-zcode/server";
 import type {
   AnyProviderDriver,
   ProviderUsageReaderEnv,
@@ -67,6 +70,9 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   AntigravityDriver,
   PiDriver,
   MuseDriver,
+  ZcodeDriver,
+  HermesDriver,
+  OmpDriver,
   AcpRegistryDriver,
 ];
 

@@ -68,7 +68,9 @@ import { assertMuseSubagentV2Output } from "./subagent_v2/muse_output.ts";
 import { assertMuseMultiTurnOutput } from "./multi_turn/muse_output.ts";
 import { assertMuseTurnInterruptOutput } from "./turn_interrupt/muse_output.ts";
 import { piCompactionInput } from "./pi_compaction/input.ts";
+import { hermesCompactionInput } from "./hermes_compaction/input.ts";
 import { assertPiCompactionOutput } from "./pi_compaction/output.ts";
+import { assertHermesCompactionOutput } from "./hermes_compaction/output.ts";
 import { providerThreadResumeInput } from "./provider_thread_resume/input.ts";
 import { assertPiProviderThreadResumeOutput } from "./provider_thread_resume/pi_output.ts";
 import { assertMultiTurnClaudeOutput } from "./multi_turn/claude_output.ts";
@@ -202,6 +204,7 @@ import {
   CODEX_MODEL_SELECTION,
   CURSOR_MODEL_SELECTION,
   GROK_MODEL_SELECTION,
+  HERMES_MODEL_SELECTION,
   MUSE_MODEL_SELECTION,
   OPENCODE_MODEL_SELECTION,
   OPENCODE2_MODEL_SELECTION,
@@ -1287,6 +1290,18 @@ export const ORCHESTRATOR_REPLAY_FIXTURES: ReadonlyArray<OrchestratorReplayFixtu
         transcriptFile: new URL("./pi_compaction/pi_transcript.ndjson", import.meta.url),
         modelSelection: PI_MODEL_SELECTION,
         assertOutput: assertPiCompactionOutput,
+      },
+    ],
+  },
+  {
+    name: "hermes_compaction",
+    buildInput: hermesCompactionInput,
+    providers: [
+      {
+        driver: ProviderDriverKind.make("hermes"),
+        transcriptFile: new URL("./hermes_compaction/hermes_transcript.ndjson", import.meta.url),
+        modelSelection: HERMES_MODEL_SELECTION,
+        assertOutput: assertHermesCompactionOutput,
       },
     ],
   },

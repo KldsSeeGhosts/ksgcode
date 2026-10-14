@@ -1308,7 +1308,7 @@ export function ProviderInstanceCard({
           onChange={updateGenericEnvironment}
         />
       </SettingsSection>
-      {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
+      {environmentId !== undefined && liveProvider?.nativeSessions !== undefined ? (
         <AcpSessionManagementSection
           environmentId={environmentId}
           instanceId={instanceId}

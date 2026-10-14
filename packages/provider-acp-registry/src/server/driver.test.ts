@@ -1,4 +1,8 @@
-import { AcpRegistryOperationError, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  AcpRegistryOperationError,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import { AcpRegistrySettings } from "../settings.ts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -42,6 +46,60 @@ function catalogWithInspection(
     uninstallManagedBinary: () => Effect.die("unused uninstall"),
   };
 }
+
+describe("dedicated ACP agent profiles", () => {
+  const profile = {
+    driverKind: ProviderDriverKind.make("hermes"),
+    displayName: "Hermes",
+    flavor: { supportsCompaction: true, compactionPrompt: "/compress" },
+    reportsContextWindow: true,
+  };
+
+  it("present under their own driver with the context meter and T3's compact command", () => {
+    const provider = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      profile,
+      settings: decodeSettings({ source: "local", commandPath: "hermes", commandArgs: ["acp"] }),
+      checkedAt: "2026-10-14T10:00:00.000Z",
+      inspection: { status: "ready", agentId: "", version: null, distribution: "local" },
+      probe: {
+        probe: {
+          instanceId: identity.instanceId,
+          ready: true,
+          icon: null,
+          authMethods: [],
+          models: [],
+          currentModelId: null,
+          configOptions: [],
+          sessionManagement: noSessionManagement,
+        },
+        slashCommands: [{ name: "compress" }],
+        skills: [],
+      },
+    });
+
+    expect(provider.driver).toBe("hermes");
+    expect(provider.reportsContextWindow).toBe(true);
+    expect(provider.slashCommands.map((command) => command.name)).toEqual(["compact", "compress"]);
+
+    // Live command updates from a running session keep the compact entry.
+    const live = applyAcpRegistryAvailableCommands(
+      provider,
+      Option.some({ slashCommands: [{ name: "steer" }], skills: [] }),
+      profile,
+    );
+    expect(live.slashCommands.map((command) => command.name)).toEqual(["compact", "steer"]);
+  });
+
+  it("name the agent when its executable is missing", () => {
+    expect(
+      acpRegistrySnapshotReadiness(
+        { status: "missing_runner", version: null, distribution: "local" },
+        profile,
+      ).message,
+    ).toBe("Hermes executable is not available on this environment's PATH.");
+  });
+});
 
 describe("acpRegistrySnapshotReadiness", () => {
   it("treats a live empty command advertisement as an authoritative replacement", () => {
