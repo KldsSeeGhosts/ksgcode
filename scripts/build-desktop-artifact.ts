@@ -2749,7 +2749,7 @@ export function resolveDesktopProductName(_version: string): string {
 }
 
 // KSG Code fork: with --signed, sign macOS builds with the self-signed
-// certificate in CSC_LINK instead of a Developer ID (see FORK.md).
+// certificate in CSC_KEYCHAIN instead of a Developer ID (see FORK.md).
 const MacSelfSignedConfig = Config.Boolean("T3CODE_MACOS_SELF_SIGNED").pipe(
   Config.withDefault(false),
 );
@@ -2858,7 +2858,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
       // "-" gets past electron-builder's lookup, which only accepts trusted
-      // identities; sign-macos.ts swaps in the certificate from CSC_LINK.
+      // identities; sign-macos.ts swaps in the certificate from CSC_KEYCHAIN.
       ...(signed && (yield* MacSelfSignedConfig) ? { identity: "-", notarize: false } : {}),
       ...(macPasskeySigning
         ? {
