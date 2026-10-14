@@ -36,7 +36,7 @@ jobs:
       # Upstream tags go under upstream/ so the fork's own release tags,
       # which share the v*-nightly.* shape, never match.
       - name: Fetch upstream nightly tags
-        run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*-nightly.*:refs/tags/upstream/v*-nightly.*'
+        run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*:refs/tags/upstream/v*'
 
       # N = upstream run number * 100 + fork counter (see FORK.md, Versions).
       - id: version
