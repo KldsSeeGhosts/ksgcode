@@ -480,6 +480,8 @@ jobs:
               security import "$RUNNER_TEMP/ksg.p12" -k "$keychain" -P "$KSG_MACOS_P12_PASSWORD" -T /usr/bin/codesign
               security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
               rm "$RUNNER_TEMP/ksg.p12"
+              # codesign resolves the identity through the search list, not only --keychain.
+              security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
               export CSC_KEYCHAIN="$keychain" T3CODE_MACOS_SELF_SIGNED=true
               echo "macOS self-signed signing enabled."
               args+=(--signed)
