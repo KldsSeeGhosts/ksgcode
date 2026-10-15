@@ -852,8 +852,7 @@ describe("AcpAdapterV2", () => {
       });
 
       const command = yield* runTurn(0, defaultPolicy, "/compact");
-      assert.isTrue(command.prompt.startsWith("/compact"));
-      assert.notInclude(command.prompt, "<t3_code_instructions>");
+      assert.equal(command.prompt, "/compact");
       const firstDefault = yield* runTurn(1, defaultPolicy, "First default request.");
       assert.include(firstDefault.prompt, "T3 Code interaction mode: Default");
       assert.include(firstDefault.prompt, "T3 Code collaborative browser");
@@ -882,6 +881,13 @@ describe("AcpAdapterV2", () => {
         restoredBuild.methods,
         "session/set_config_option",
         "Build should restore the native mode that T3 temporarily replaced for Plan",
+      );
+      const modelCommand = yield* runTurn(6, planPolicy, "/model custom/model");
+      assert.equal(modelCommand.prompt, "/model custom/model");
+      assert.include(
+        (yield* runTurn(7, planPolicy, "Continue in Plan.")).prompt,
+        "T3 Code interaction mode: Plan",
+        "A native command must not consume the pending mode instructions",
       );
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
