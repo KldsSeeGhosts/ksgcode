@@ -234,6 +234,30 @@ it.effect("keeps local credentials separate from a matching registry agent ID", 
 );
 
 it.effect(
+  "does not inspect or start disabled ACP providers during sign-in discovery or refresh",
+  () =>
+    Effect.gen(function* () {
+      const controller = yield* makeAcpRegistryAuth({
+        instanceId,
+        settings: decodeSettings({ source: "local", commandPath: "/tools/hermes", enabled: false }),
+        cwd: "/workspace",
+        environment: {},
+        onChanged: () => Effect.die("disabled discovery must not change authentication"),
+        makeRuntime: () => Effect.die("disabled discovery must not spawn a provider"),
+      }).pipe(
+        Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, {
+          ...catalog,
+          inspect: () => Effect.die("disabled discovery must not inspect an installation"),
+          resolve: () => Effect.die("disabled discovery must not resolve an installation"),
+        }),
+      );
+      yield* controller.refreshMethods!;
+      const state = yield* controller.subscribe("owner").pipe(Stream.runHead);
+      assert.deepEqual(Option.getOrThrow(state).methods, []);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
   "discovers methods without signing in, then waits for browser consent and session verification",
   () =>
     Effect.gen(function* () {

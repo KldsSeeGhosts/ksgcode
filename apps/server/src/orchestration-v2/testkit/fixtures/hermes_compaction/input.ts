@@ -9,6 +9,8 @@ export const HERMES_COMPACTION_NORMAL_PROMPT = "Reply with exactly the word OK."
  */
 export function hermesCompactionInput(): OrchestratorFixtureInput {
   return {
+    // The capture used Hermes's native `default` (ask-before-edits) mode.
+    runtimeMode: "approval-required",
     steps: [
       { type: "message", text: HERMES_COMPACTION_NORMAL_PROMPT },
       { type: "message", text: "/compact" },

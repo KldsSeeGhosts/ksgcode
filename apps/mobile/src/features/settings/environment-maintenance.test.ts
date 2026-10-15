@@ -155,6 +155,15 @@ describe("environment maintenance access", () => {
       }),
     ).toBe(false);
   });
+
+  it("offers an admitted native updater even when its latest release version is unknown", () => {
+    expect(
+      canUpdateEnvironmentProvider({
+        ...provider,
+        versionAdvisory: { ...provider.versionAdvisory!, status: "unknown", latestVersion: null },
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("environment release checks", () => {

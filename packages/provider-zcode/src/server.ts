@@ -3,4 +3,9 @@
  *
  * @module provider-zcode/server
  */
-export { ZCODE_PROVIDER, ZcodeAdapterV2Driver, ZcodeDriver } from "./server/driver.ts";
+export {
+  ZCODE_PROFILE,
+  ZCODE_PROVIDER,
+  ZcodeAdapterV2Driver,
+  ZcodeDriver,
+} from "./server/driver.ts";

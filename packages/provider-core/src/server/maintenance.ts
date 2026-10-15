@@ -1,4 +1,5 @@
 import type { ProviderDriverKind } from "@t3tools/contracts";
+import type * as Effect from "effect/Effect";
 
 export interface ProviderMaintenanceCapabilities {
   readonly provider: ProviderDriverKind;
@@ -11,6 +12,11 @@ export interface ProviderMaintenanceCapabilities {
    * installer was asked and did not know.
    */
   readonly latestVersion?: string | null;
+  /** Native release channels must not be inferred from npm's stable tag. */
+  readonly latestVersionLookup?: {
+    readonly cacheKey: string;
+    readonly read: Effect.Effect<string | null>;
+  };
   /** Compare native release revisions when the provider does not use plain semver. */
   readonly compareVersions?: (current: string, latest: string) => number;
 }
@@ -27,4 +33,6 @@ export interface ProviderMaintenanceCommandAction {
    * must update that home and not the default one.
    */
   readonly env?: NodeJS.ProcessEnv;
+  /** Source installers may rebuild dependencies and desktop assets. */
+  readonly timeoutMs?: number;
 }

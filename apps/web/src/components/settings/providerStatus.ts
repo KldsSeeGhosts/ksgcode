@@ -148,10 +148,20 @@ export function getProviderVersionAdvisoryPresentation(
   if (
     !advisory ||
     advisory.status === "current" ||
-    advisory.status === "unknown" ||
+    (advisory.status === "unknown" && !advisory.canUpdate) ||
     latestIsIncompatible
   ) {
     return null;
+  }
+  if (advisory.status === "unknown") {
+    return {
+      title: "Update provider",
+      detail:
+        "The latest version is unknown. Run the provider's installer to check for and apply updates.",
+      updateCommand: advisory.updateCommand,
+      emphasis: "normal",
+      targetVersion: null,
+    };
   }
 
   const label = "Update available";

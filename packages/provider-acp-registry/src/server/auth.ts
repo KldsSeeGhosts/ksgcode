@@ -139,22 +139,24 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
     }),
   );
 
-  const methods = Option.isSome(coordinator)
-    ? coordinator.value
-        .runBackgroundProbe(agentKey, discoverMethods)
-        .pipe(
-          Effect.flatMap((result) =>
-            Option.isSome(result)
-              ? Effect.succeed(result.value)
-              : Effect.fail(
-                  failure(
-                    "methods",
-                    "Sign-in discovery was interrupted by an active provider session. Try again.",
+  const methods = !options.settings.enabled
+    ? Effect.succeed([])
+    : Option.isSome(coordinator)
+      ? coordinator.value
+          .runBackgroundProbe(agentKey, discoverMethods)
+          .pipe(
+            Effect.flatMap((result) =>
+              Option.isSome(result)
+                ? Effect.succeed(result.value)
+                : Effect.fail(
+                    failure(
+                      "methods",
+                      "Sign-in discovery was interrupted by an active provider session. Try again.",
+                    ),
                   ),
-                ),
-          ),
-        )
-    : discoverMethods;
+            ),
+          )
+      : discoverMethods;
 
   const runTerminal = Effect.fnUntraced(function* (
     resolved: AcpRegistrySupport.ResolvedAcpRegistryAgent,

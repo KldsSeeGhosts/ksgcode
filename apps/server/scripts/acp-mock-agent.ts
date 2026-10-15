@@ -34,6 +34,8 @@ const emitBackgroundToolDuringAnswer =
   process.env.T3_ACP_EMIT_BACKGROUND_TOOL_DURING_ANSWER === "1";
 const emitAskQuestion = process.env.T3_ACP_EMIT_ASK_QUESTION === "1";
 const emitElicitation = process.env.T3_ACP_EMIT_ELICITATION === "1";
+const emitOmpAskDialog = process.env.T3_ACP_EMIT_OMP_ASK_DIALOG === "1";
+const emitZcodeAskDialog = process.env.T3_ACP_EMIT_ZCODE_ASK_DIALOG === "1";
 const emitMcpToolApprovalElicitation =
   process.env.T3_ACP_EMIT_MCP_TOOL_APPROVAL_ELICITATION === "1";
 const emitUrlElicitation = process.env.T3_ACP_EMIT_URL_ELICITATION === "1";
@@ -1795,6 +1797,98 @@ const program = Effect.gen(function* () {
           },
         });
 
+        return yield* finishPrompt(requestedSessionId, "end_turn");
+      }
+
+      if (emitZcodeAskDialog) {
+        const result = yield* agent.client.elicit({
+          sessionId: requestedSessionId,
+          message: "Please answer 2 questions.",
+          mode: "form",
+          requestedSchema: {
+            type: "object",
+            required: [],
+            properties: {
+              q_0: {
+                type: "string",
+                title: "Which scope?",
+                oneOf: [
+                  { const: "workspace", title: "Workspace", description: "Current workspace" },
+                  { const: "session", title: "Session", description: "This session only" },
+                  { const: "__skip__", title: "Skip this question" },
+                ],
+              },
+              q_0_other: {
+                type: "string",
+                title: "↳    or type a custom value (overrides the selection)",
+              },
+              q_1: {
+                type: "array",
+                title: "Which scope?",
+                items: {
+                  anyOf: [
+                    { const: "api", title: "API", description: "Server" },
+                    { const: "ui", title: "UI", description: "Client" },
+                  ],
+                },
+              },
+              q_1_other: {
+                type: "string",
+                title: "↳    or add a custom value (combined with the selection)",
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: encodeJson(result) },
+          },
+        });
+        return yield* finishPrompt(requestedSessionId, "end_turn");
+      }
+
+      if (emitOmpAskDialog) {
+        const result = yield* agent.client.elicit({
+          sessionId: requestedSessionId,
+          message: "Answer 2 questions",
+          mode: "form",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              q0: {
+                type: "string",
+                title: "Which scope?",
+                description: "Scope",
+                oneOf: [
+                  { const: "workspace", title: "Workspace", description: "Current workspace" },
+                  { const: "session", title: "Session", description: "This session only" },
+                ],
+              },
+              q0__other: { type: "string", title: "Other (specify)" },
+              q1: {
+                type: "array",
+                title: "Which scope?",
+                description: "Components",
+                items: {
+                  anyOf: [
+                    { const: "api", title: "API", description: "Server" },
+                    { const: "ui", title: "UI", description: "Client" },
+                  ],
+                },
+              },
+              q1__other: { type: "string", title: "Other (specify)" },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: encodeJson(result) },
+          },
+        });
         return yield* finishPrompt(requestedSessionId, "end_turn");
       }
 

@@ -376,6 +376,7 @@ describe("ACP Registry probe", () => {
         environment: process.env,
       });
 
+      expect(result.agentVersion).toBe("0.0.0");
       expect(result.slashCommands).toEqual([
         {
           name: "review",

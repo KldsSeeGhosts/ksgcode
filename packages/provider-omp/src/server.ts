@@ -3,4 +3,4 @@
  *
  * @module provider-omp/server
  */
-export { OMP_PROVIDER, OmpAdapterV2Driver, OmpDriver } from "./server/driver.ts";
+export { OMP_PROFILE, OMP_PROVIDER, OmpAdapterV2Driver, OmpDriver } from "./server/driver.ts";

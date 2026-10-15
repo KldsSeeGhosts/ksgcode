@@ -90,6 +90,12 @@ import {
   type AcpClientTerminals,
 } from "./clientTerminals.ts";
 import { ACP_EMPTY_OPTION_VALUE, ACP_SESSION_MODE_OPTION_ID } from "./sessionConfig.ts";
+import {
+  isAcpFormElicitation,
+  makeAcpElicitationForm,
+  type AcpElicitationForm,
+  type AcpFormElicitation,
+} from "./elicitation.ts";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 import {
   t3AcpPromptWithInstructions,
@@ -224,6 +230,11 @@ export interface AcpAdapterV2Flavor {
   readonly normalizeSessionUpdate?: (
     notification: EffectAcpSchema.SessionNotification,
   ) => EffectAcpSchema.SessionNotification;
+  /** Adapts an agent's companion form fields without changing generic ACP forms. */
+  readonly mapElicitationForm?: (
+    request: AcpFormElicitation,
+    form: AcpElicitationForm,
+  ) => AcpElicitationForm;
   readonly onAvailableCommandsUpdate?: (
     commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
   ) => Effect.Effect<void>;
@@ -1101,22 +1112,6 @@ function selectAutoApprovedPermissionOption(
     selectPermissionOptionId(request, "accept") ??
     selectPermissionOptionId(request, "acceptForSession")
   );
-}
-
-function elicitationContent(
-  answers: ProviderUserInputAnswers,
-  allowedKeys: ReadonlySet<string>,
-): Record<string, EffectAcpSchema.ElicitationContentValue> {
-  const content: Record<string, EffectAcpSchema.ElicitationContentValue> = {};
-  for (const [key, value] of Object.entries(answers)) {
-    if (!allowedKeys.has(key)) continue;
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      content[key] = value;
-    } else if (Array.isArray(value)) {
-      content[key] = value.filter((entry): entry is string => typeof entry === "string");
-    }
-  }
-  return content;
 }
 
 interface ActiveTextSegment {
@@ -5878,38 +5873,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 if (Option.isNone(admitted)) return yield* Effect.never;
                 return admitted.value;
               }
-              if (params.mode !== "form" || !("requestedSchema" in params)) {
+              if (!isAcpFormElicitation(params)) {
                 // Future elicitation modes beyond form and url decline rather
                 // than guessing at their semantics.
                 return { action: "decline" } as const;
               }
-              const requestedSchema = unknownRecord(params.requestedSchema);
-              const properties = unknownRecord(requestedSchema?.properties) ?? {};
+              const defaultForm = makeAcpElicitationForm(params);
+              const form = flavor.mapElicitationForm?.(params, defaultForm) ?? defaultForm;
               const elicitationScopeId =
                 "sessionId" in params ? params.sessionId : `request:${params.requestId}`;
-              const questions = Object.entries(properties).map(
-                ([id, property], index): OrchestrationV2UserInputQuestion => {
-                  const record = unknownRecord(property);
-                  const enumValues = Array.isArray(record?.enum)
-                    ? record.enum.filter((value): value is string => typeof value === "string")
-                    : [];
-                  const options =
-                    enumValues.length > 0
-                      ? enumValues.map((value) => ({ label: value, description: value }))
-                      : record?.type === "boolean"
-                        ? [
-                            { label: "true", description: "Yes" },
-                            { label: "false", description: "No" },
-                          ]
-                        : [];
-                  return {
-                    id,
-                    header: nonEmptyText(record?.title, `Question ${index + 1}`),
-                    question: nonEmptyText(record?.description, params.message),
-                    options,
-                  };
-                },
-              );
               const userInput = yield* requestUserInputWithAdmission(
                 handlerGeneration,
                 Effect.gen(function* () {
@@ -5921,7 +5893,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   return {
                     nativeItemId: nativeRequestId,
                     nativeRequestId,
-                    questions,
+                    questions: form.questions,
                   };
                 }),
                 transportRequestId,
@@ -5931,10 +5903,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   ? ({ action: "cancel" } as const)
                   : ({
                       action: "accept",
-                      content: elicitationContent(
-                        userInput.answers,
-                        new Set(Object.keys(properties)),
-                      ),
+                      content: form.content(userInput.answers),
                     } as const);
               yield* userInput.acknowledgeNativeResponse;
               return response;
@@ -6342,6 +6311,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             selection.value === ACP_EMPTY_OPTION_VALUE ? { ...selection, value: "" } : selection,
           );
           const configOptions = yield* runtime.getConfigOptions;
+          const policyMode = flavor.sessionModeForPolicy?.(runtimePolicy);
           const availableConfigIds = new Set(configOptions.map((option) => option.id));
           const hasNativeConfigWithSyntheticModeId = availableConfigIds.has(
             ACP_SESSION_MODE_OPTION_ID,
@@ -6381,6 +6351,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             // agent-side set rejection to a warning; the agent's default
             // applies for that option.
             const option = configOptions.find((candidate) => candidate.id === selection.id);
+            // Dedicated drivers bind native permission modes to T3's runtime
+            // policy. A stale model-option pick must not briefly switch a
+            // supervised session to yolo before the policy is reapplied.
+            if (policyMode !== undefined && option?.category === "mode") continue;
             if (
               option !== undefined &&
               option.type === "select" &&
@@ -6402,7 +6376,6 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               }),
             );
           }
-          const policyMode = flavor.sessionModeForPolicy?.(runtimePolicy);
           if (policyMode !== undefined) {
             yield* runtime.setMode(policyMode);
           }
@@ -6411,6 +6384,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           // agent no longer advertises it: mode sets are volatile across agent
           // versions and a stale persisted mode should not block the turn.
           if (
+            policyMode === undefined &&
             modeSelection !== undefined &&
             typeof modeSelection.value === "string" &&
             modeState?.availableModes.some((mode) => mode.id === modeSelection.value) === true &&

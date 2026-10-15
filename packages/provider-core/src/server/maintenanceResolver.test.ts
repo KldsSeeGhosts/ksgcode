@@ -30,6 +30,7 @@ import {
   resolveLatestProviderVersion,
   resolvePackageManagedProviderMaintenance,
   resolveProviderMaintenanceCapabilitiesEffect,
+  readProviderMaintenanceOutput,
   type ProviderMaintenanceCapabilities,
 } from "./maintenanceResolver.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
@@ -155,6 +156,69 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         expect(version).toBe("1.2.0");
       }),
     ),
+  );
+
+  it.effect("caches the native release channel separately from npm and can invalidate it", () =>
+    Effect.gen(function* () {
+      let reads = 0;
+      const capabilities = {
+        ...manualPackageTool,
+        latestVersionLookup: {
+          cacheKey: "native-tool:canary",
+          read: Effect.sync(() => {
+            reads++;
+            return "2.0.0-canary.1";
+          }),
+        },
+      };
+      const versions = yield* ProviderLatestVersions.ProviderLatestVersions;
+      expect(yield* resolveLatestProviderVersion(capabilities)).toBe("2.0.0-canary.1");
+      expect(yield* resolveLatestProviderVersion(capabilities)).toBe("2.0.0-canary.1");
+      expect(reads).toBe(1);
+      yield* versions.invalidate("native-tool:canary");
+      yield* resolveLatestProviderVersion(capabilities);
+      expect(reads).toBe(2);
+    }).pipe(
+      Effect.provide(ProviderLatestVersions.layer),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.die("not npm")),
+      ),
+    ),
+  );
+
+  it.effect("does not invoke a native release check when update checks are disabled", () =>
+    enrichProviderSnapshotWithVersionAdvisory(
+      installedPackageToolProvider,
+      {
+        ...manualPackageTool,
+        latestVersionLookup: { cacheKey: "native", read: Effect.die("disabled native check") },
+      },
+      { enableProviderUpdateChecks: false },
+    ).pipe(
+      Effect.provide(ProviderLatestVersions.layer),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.die("not npm")),
+      ),
+      Effect.map((provider) => expect(provider.versionAdvisory?.status).toBe("unknown")),
+    ),
+  );
+
+  it.effect(
+    "keeps oversized installer probe output unknown instead of trusting a truncated answer",
+    () =>
+      readProviderMaintenanceOutput({
+        executable: "/tools/fixture",
+        args: ["update", "--check"],
+        env: {},
+      }).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          stdoutSpawner(() => `New version available: 9.0.0\n${"x".repeat(128 * 1_024)}`),
+        ),
+        Effect.map((output) => expect(output).toBeNull()),
+      ),
   );
 
   it.effect("does not fetch latest provider versions when update checks are disabled", () =>

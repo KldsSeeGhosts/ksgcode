@@ -374,6 +374,75 @@ describe("providerMaintenanceRunner", () => {
     );
   });
 
+  it.effect("allows native source installers to outlive the default five-minute deadline", () => {
+    const started = Deferred.makeUnsafe<void>();
+    const exited = Deferred.makeUnsafe<ChildProcessSpawner.ExitCode>();
+    return Effect.gen(function* () {
+      const { registry, updateStatesRef } = yield* makeRegistry(baseNativeCliProvider);
+      const updater = yield* makeTestRunner({
+        ...registry,
+        getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) => {
+          const capabilities = lifecycleFor(provider);
+          return Effect.succeed({
+            ...capabilities,
+            update: capabilities.update && { ...capabilities.update, timeoutMs: 30 * 60_000 },
+          });
+        },
+      });
+      const fiber = yield* updater.updateProvider(NATIVE_CLI_DRIVER).pipe(Effect.forkChild);
+      yield* Deferred.await(started);
+      yield* TestClock.adjust(Duration.minutes(6));
+      assert.strictEqual((yield* Ref.get(updateStatesRef)).at(-1)?.status, "running");
+      yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
+      const result = yield* Fiber.join(fiber);
+      assert.strictEqual(result.providers[0]?.updateState?.status, "succeeded");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          layerNonWindowsPlatform,
+          layerLatestVersionHttpClient("0.0.0"),
+          layerMockSpawner(() => ({
+            exitCode: Deferred.succeed(started, undefined).pipe(
+              Effect.andThen(Deferred.await(exited)),
+            ),
+          })),
+        ),
+      ),
+    );
+  });
+
+  it.effect("invalidates native release metadata before verifying an update", () => {
+    return Effect.gen(function* () {
+      let checks = 0;
+      const { registry } = yield* makeRegistry({ ...baseNativeCliProvider, version: "2.0.0" });
+      const updater = yield* makeTestRunner({
+        ...registry,
+        getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
+          Effect.succeed({
+            ...lifecycleFor(provider),
+            latestVersionLookup: {
+              cacheKey: "native-channel",
+              read: Effect.sync(() => {
+                checks++;
+                return checks === 1 ? "1.0.0" : "2.0.0";
+              }),
+            },
+          }),
+      });
+      const result = yield* updater.updateProvider(NATIVE_CLI_DRIVER);
+      assert.strictEqual(checks, 2);
+      assert.strictEqual(result.providers[0]?.updateState?.status, "succeeded");
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          layerNonWindowsPlatform,
+          layerLatestVersionHttpClient("0.0.0"),
+          layerMockSpawner(() => ({ stdout: "updated" })),
+        ),
+      ),
+    );
+  });
+
   it.effect("re-resolves ownership before running and executes the fresh command", () => {
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
     const fresh: Array<boolean> = [];

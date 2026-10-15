@@ -163,16 +163,17 @@ function makeAcpRegistryRuntime(
               }),
           ),
         );
+      const spawn =
+        processEnvironment === undefined
+          ? resolved.spawn
+          : {
+              ...resolved.spawn,
+              env: { ...resolved.spawn.env, ...processEnvironment },
+            };
       const context = yield* Layer.build(
         AcpSessionRuntime.layer({
           ...runtimeInput,
-          spawn:
-            processEnvironment === undefined
-              ? resolved.spawn
-              : {
-                  ...resolved.spawn,
-                  env: { ...resolved.spawn.env, ...processEnvironment },
-                },
+          spawn: options.profile?.prepareSpawn?.(spawn, input.runtimePolicy) ?? spawn,
           ...(options.settings.authMethodId ? { authMethodId: options.settings.authMethodId } : {}),
           customModels: readCustomModelEntries(options.settings.customModels).map(
             (entry) => entry.slug,

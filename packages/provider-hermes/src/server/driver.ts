@@ -17,6 +17,7 @@ import {
 import * as Schema from "effect/Schema";
 
 import { HermesSettings } from "../settings.ts";
+import { hermesMaintenance } from "./maintenance.ts";
 
 export const HERMES_PROVIDER = ProviderDriverKind.make("hermes");
 
@@ -26,6 +27,14 @@ export const HERMES_PROFILE: AcpAgentProfile = {
   flavor: {
     supportsCompaction: true,
     compactionPrompt: "/compress",
+    // Hermes persists edit-approval mode in the native session. Reapply T3's
+    // policy on both new and resumed sessions instead of inheriting that mode.
+    sessionModeForPolicy: (policy) =>
+      policy.runtimeMode === "full-access"
+        ? "dont_ask"
+        : policy.runtimeMode === "auto-accept-edits"
+          ? "accept_edits"
+          : "default",
   },
   reportsContextWindow: true,
 };
@@ -51,6 +60,7 @@ const definition: AcpAgentDriverDefinition<HermesSettings> = {
 
 export const HermesDriver = makeAcpAgentDriver({
   ...definition,
+  maintenance: hermesMaintenance,
   metadata: { displayName: "Hermes", supportsMultipleInstances: true },
 });
 

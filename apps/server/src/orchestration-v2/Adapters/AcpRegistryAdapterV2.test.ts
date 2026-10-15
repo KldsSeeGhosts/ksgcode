@@ -1,6 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
-import { ProviderInstanceId, ProviderSessionId, ThreadId } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  ProviderSessionId,
+  ThreadId,
+  type RuntimeMode,
+} from "@t3tools/contracts";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -12,6 +17,7 @@ import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as ChildProcess from "effect/process/ChildProcess";
 import * as EffectAcpErrors from "effect-acp/errors";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
@@ -34,7 +40,13 @@ import {
 } from "./AcpAdapterV2.testkit.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { BUILT_IN_PROVIDER_ADAPTER_DRIVER_KINDS_V2 } from "../builtInProviderAdapterDrivers.ts";
-import { AcpRegistryAdapterV2Driver } from "@t3tools/provider-acp-registry/server";
+import {
+  AcpRegistryAdapterV2Driver,
+  type AcpAgentProfile,
+} from "@t3tools/provider-acp-registry/server";
+import { OMP_PROFILE } from "@t3tools/provider-omp/server";
+import { HERMES_PROFILE } from "@t3tools/provider-hermes/server";
+import { ZCODE_PROFILE } from "@t3tools/provider-zcode/server";
 import {
   ACP_REGISTRY_PROVIDER,
   makeAcpRegistryAdapterV2,
@@ -167,6 +179,10 @@ describe("AcpRegistryAdapterV2", () => {
       readonly setup: unknown;
       readonly modeFrames: ReadonlyArray<Frame>;
       readonly storedModePick: string;
+      readonly storedModeConfigId?: string;
+      readonly profile?: AcpAgentProfile;
+      readonly runtimeMode?: RuntimeMode;
+      readonly resume?: boolean;
     }) {
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -185,11 +201,17 @@ describe("AcpRegistryAdapterV2", () => {
             outbound("initialize"),
             answer("initialize", {
               protocolVersion: 1,
-              agentCapabilities: { loadSession: false },
+              agentCapabilities: {
+                loadSession: false,
+                ...(input.resume ? { sessionCapabilities: { resume: {} } } : {}),
+              },
               authMethods: [{ id: "test", name: "Test" }],
             }),
-            outbound("session/new"),
-            answer("session/new", { sessionId: "agent-session", ...(input.setup as object) }),
+            outbound(input.resume ? "session/resume" : "session/new"),
+            answer(input.resume ? "session/resume" : "session/new", {
+              sessionId: "agent-session",
+              ...(input.setup as object),
+            }),
             ...input.modeFrames,
           ] as never,
         },
@@ -204,6 +226,7 @@ describe("AcpRegistryAdapterV2", () => {
           authMethodId: "test",
         }),
         environment: {},
+        ...(input.profile === undefined ? {} : { profile: input.profile }),
         makeRuntime: makeAcpReplayRuntime({
           transcript,
           statusPath,
@@ -218,13 +241,19 @@ describe("AcpRegistryAdapterV2", () => {
         .openSession({
           threadId: ThreadId.make("thread-acp-registry-mode-pick"),
           providerSessionId: ProviderSessionId.make("provider-session-mode-pick"),
+          ...(input.resume ? { initialNativeThreadId: "agent-session" } : {}),
           modelSelection: {
             instanceId,
             model: "default",
-            options: [{ id: ACP_SESSION_MODE_OPTION_ID, value: input.storedModePick }],
+            options: [
+              {
+                id: input.storedModeConfigId ?? ACP_SESSION_MODE_OPTION_ID,
+                value: input.storedModePick,
+              },
+            ],
           },
           runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-            runtimeMode: "approval-required",
+            runtimeMode: input.runtimeMode ?? "approval-required",
             interactionMode: "default",
             cwd: replayDir,
           }),
@@ -234,6 +263,123 @@ describe("AcpRegistryAdapterV2", () => {
       // the same tick as its last answer. The script must be consumed exactly.
       yield* makeAcpReplayCompletenessAssertion(fileSystem, statusPath, transcript);
     });
+
+    it.effect.each([
+      ["approval-required", "default"],
+      ["auto-accept-edits", "accept_edits"],
+      ["full-access", "dont_ask"],
+      ["auto", "default"],
+    ] as const)(
+      "synchronizes Hermes %s policy instead of a stale native-mode pick",
+      ([runtimeMode, expectedMode]) =>
+        openWithStoredModePick({
+          profile: HERMES_PROFILE,
+          runtimeMode,
+          setup: {
+            modes: {
+              currentModeId: "accept_edits",
+              availableModes: ["default", "accept_edits", "dont_ask"].map((id) => ({
+                id,
+                name: id,
+              })),
+            },
+          },
+          modeFrames:
+            expectedMode === "accept_edits"
+              ? []
+              : [
+                  outbound("session/set_mode", {
+                    sessionId: "agent-session",
+                    modeId: expectedMode,
+                  }),
+                  answer("session/set_mode", {}),
+                ],
+          storedModePick: expectedMode === "dont_ask" ? "default" : "dont_ask",
+        }).pipe(Effect.provide(layerTest), Effect.scoped),
+    );
+
+    const zcodeModeOption = (currentValue: string) => ({
+      id: "mode",
+      name: "Mode",
+      category: "mode",
+      type: "select",
+      currentValue,
+      options: ["plan", "build", "edit", "yolo", "auto"].map((value) => ({ value, name: value })),
+    });
+
+    it.effect.each([
+      ["approval-required", "build"],
+      ["auto-accept-edits", "edit"],
+      ["full-access", "yolo"],
+      ["auto", "auto"],
+    ] as const)(
+      "synchronizes ZCode %s policy instead of the bridge's native default",
+      ([runtimeMode, expectedMode]) =>
+        openWithStoredModePick({
+          profile: ZCODE_PROFILE,
+          runtimeMode,
+          setup: { configOptions: [zcodeModeOption("yolo")] },
+          modeFrames:
+            expectedMode === "yolo"
+              ? []
+              : [
+                  outbound("session/set_config_option", {
+                    sessionId: "agent-session",
+                    configId: "mode",
+                    value: expectedMode,
+                  }),
+                  answer("session/set_config_option", {
+                    configOptions: [zcodeModeOption(expectedMode)],
+                  }),
+                ],
+          storedModePick: expectedMode === "yolo" ? "build" : "yolo",
+        }).pipe(Effect.provide(layerTest), Effect.scoped),
+    );
+
+    it.effect("does not temporarily apply a saved yolo config before Supervised policy", () =>
+      openWithStoredModePick({
+        profile: ZCODE_PROFILE,
+        setup: { configOptions: [zcodeModeOption("build")] },
+        modeFrames: [],
+        storedModeConfigId: "mode",
+        storedModePick: "yolo",
+      }).pipe(Effect.provide(layerTest), Effect.scoped),
+    );
+
+    it.effect("resumes Hermes in Supervised rather than its persisted Don't Ask mode", () =>
+      openWithStoredModePick({
+        profile: HERMES_PROFILE,
+        resume: true,
+        setup: {
+          modes: {
+            currentModeId: "dont_ask",
+            availableModes: ["default", "accept_edits", "dont_ask"].map((id) => ({ id, name: id })),
+          },
+        },
+        modeFrames: [
+          outbound("session/set_mode", { sessionId: "agent-session", modeId: "default" }),
+          answer("session/set_mode", {}),
+        ],
+        storedModePick: "dont_ask",
+      }).pipe(Effect.provide(layerTest), Effect.scoped),
+    );
+
+    it.effect("resumes ZCode in Supervised rather than its persisted yolo mode", () =>
+      openWithStoredModePick({
+        profile: ZCODE_PROFILE,
+        resume: true,
+        setup: { configOptions: [zcodeModeOption("yolo")] },
+        modeFrames: [
+          outbound("session/set_config_option", {
+            sessionId: "agent-session",
+            configId: "mode",
+            value: "build",
+          }),
+          answer("session/set_config_option", { configOptions: [zcodeModeOption("build")] }),
+        ],
+        storedModePick: "yolo",
+      }).pipe(Effect.provide(layerTest), Effect.scoped),
+    );
 
     it.effect("switches an agent that only advertises modes with session/set_mode", () =>
       openWithStoredModePick({
@@ -331,6 +477,79 @@ describe("AcpRegistryAdapterV2", () => {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,
       });
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.effect("applies the dedicated OMP policy to the actual spawned process", () =>
+    Effect.gen(function* () {
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const path = yield* Path.Path;
+      const mockAgentPath = yield* path.fromFileUrl(
+        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+      );
+      const spawnedArgs: Array<ReadonlyArray<string>> = [];
+      const spawner = ChildProcessSpawner.make((command) => {
+        if (ChildProcess.isStandardCommand(command)) spawnedArgs.push(command.args);
+        return childProcessSpawner.spawn(command);
+      });
+      for (const [runtimeMode, mode] of [
+        ["approval-required", "always-ask"],
+        ["auto-accept-edits", "write"],
+        ["full-access", "yolo"],
+      ] as const) {
+        yield* Effect.gen(function* () {
+          const instanceId = ProviderInstanceId.make(`omp-spawn-${runtimeMode}`);
+          const adapter = yield* makeAcpRegistryAdapterV2({
+            selfInvocation: yield* resolveSelfInvocation(),
+            instanceId,
+            settings: yield* decodeAcpRegistryAdapterSettings({
+              source: "local",
+              commandPath: process.execPath,
+              authMethodId: "test",
+            }),
+            profile: OMP_PROFILE,
+            environment: {},
+          }).pipe(
+            Effect.provide(
+              Layer.mock(AcpRegistrySupport.AcpRegistryCatalog)({
+                resolve: (_settings, cwd) =>
+                  Effect.succeed({
+                    agent: {
+                      id: "omp",
+                      name: "OMP",
+                      version: "test",
+                      description: "",
+                      distribution: {},
+                    },
+                    distribution: "binary",
+                    spawn: {
+                      command: process.execPath,
+                      args: [mockAgentPath, "--auto-approve", "--approval-mode", "yolo"],
+                      cwd,
+                      env: { T3_ACP_SESSION_LIFECYCLE: "1" },
+                    },
+                  }),
+              }),
+            ),
+          );
+          const session = yield* adapter.openSession({
+            threadId: ThreadId.make(`thread-omp-spawn-${runtimeMode}`),
+            providerSessionId: ProviderSessionId.make(`session-omp-spawn-${runtimeMode}`),
+            modelSelection: { instanceId, model: "default" },
+            runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+              runtimeMode,
+              interactionMode: "default",
+              cwd: process.cwd(),
+            }),
+          });
+          assert.equal(session.providerSession.driver, "omp");
+          assert.deepEqual(spawnedArgs.at(-1), [mockAgentPath, `--approval-mode=${mode}`]);
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.scoped,
+        );
+      }
+      assert.equal(spawnedArgs.length, 3);
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
