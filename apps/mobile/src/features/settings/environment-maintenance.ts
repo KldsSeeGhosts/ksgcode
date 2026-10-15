@@ -35,9 +35,9 @@ export function canUpdateEnvironmentProvider(provider: ServerProvider) {
   return (
     provider.installed &&
     provider.availability !== "unavailable" &&
-    provider.versionAdvisory?.status === "behind_latest" &&
+    (provider.versionAdvisory?.status === "behind_latest" ||
+      provider.versionAdvisory?.status === "unknown") &&
     provider.versionAdvisory.canUpdate &&
-    provider.versionAdvisory.latestVersion !== null &&
     compatibility !== "broken" &&
     compatibility !== "unsupported" &&
     provider.updateState?.status !== "running" &&

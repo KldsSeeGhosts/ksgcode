@@ -34,4 +34,20 @@ describe("pinned ACP wire schemas", () => {
       Schema.is(V2.AvailableCommand)({ ...command, input: { type: "text", hint: "Task" } }),
     ).toBe(true);
   });
+
+  it.each([V1, V2])("accepts titled multi-select questions in the pinned wire schema", (wire) => {
+    const accepts = Schema.is(wire.ElicitationPropertySchema);
+    const property = {
+      type: "array",
+      title: "Which components?",
+      items: {
+        anyOf: [
+          { const: "api", title: "API", description: "Server" },
+          { const: "ui", title: "UI", description: "Client" },
+        ],
+      },
+    };
+    expect(accepts(property)).toBe(true);
+    expect(accepts({ ...property, items: { anyOf: [{ title: "Missing value" }] } })).toBe(false);
+  });
 });

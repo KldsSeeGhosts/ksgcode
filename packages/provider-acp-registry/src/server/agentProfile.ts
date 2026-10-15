@@ -12,6 +12,8 @@ import type {
   ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import type { AcpAdapterV2Flavor } from "@t3tools/provider-acp/server/adapter";
+import type { AcpSpawnInput } from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import type { ProviderAdapterV2RuntimePolicy } from "@t3tools/provider-core/server/ProviderAdapter";
 import { COMPACT_SLASH_COMMAND } from "@t3tools/provider-core/server/snapshotProbe";
 import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 import { readCustomModelEntries, toCustomModelSetting } from "@t3tools/shared/model";
@@ -28,9 +30,22 @@ export interface AcpAgentProfile {
   readonly flavor?: Partial<
     Pick<
       AcpAdapterV2Flavor,
-      "capabilities" | "supportsCompaction" | "compactionPrompt" | "supportsImagePrompts"
+      | "capabilities"
+      | "supportsCompaction"
+      | "compactionPrompt"
+      | "supportsImagePrompts"
+      | "normalizeSessionUpdate"
+      | "mapElicitationForm"
+      | "sessionModeForPolicy"
     >
   >;
+  /** Applies session policy to agents whose approval mode is a launch-time flag. */
+  readonly prepareSpawn?: (
+    spawn: AcpSpawnInput,
+    policy: ProviderAdapterV2RuntimePolicy,
+  ) => AcpSpawnInput;
+  /** Native mode config IDs controlled by `sessionModeForPolicy`, not model options. */
+  readonly managedModeOptionIds?: ReadonlyArray<string>;
   /** The agent reports `usage_update` with a context size, so clients show the meter. */
   readonly reportsContextWindow?: boolean;
 }

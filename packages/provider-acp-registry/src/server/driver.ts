@@ -15,14 +15,20 @@ import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as HttpClient from "effect/http/HttpClient";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as NodeUtil from "node:util";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
+import { ACP_SESSION_MODE_OPTION_ID } from "@t3tools/provider-acp/server/sessionConfig";
 import {
   makeAcpAgentAdapterV2Driver,
   type AcpAgentDriverDefinition,
@@ -40,7 +46,14 @@ import {
   type ProviderInstance,
 } from "@t3tools/provider-core/server/driver";
 import { providerModelsFromSettings } from "@t3tools/provider-core/server/snapshotProbe";
-import { makeManualOnlyProviderMaintenanceCapabilities } from "@t3tools/provider-core/server/maintenanceResolver";
+import {
+  enrichProviderSnapshotWithVersionAdvisory,
+  makeCachedProviderMaintenanceResolution,
+  makeManualOnlyProviderMaintenanceCapabilities,
+  readProviderMaintenanceOutput,
+  resolveProviderMaintenanceCapabilitiesEffect,
+  type ProviderMaintenanceCapabilitiesResolver,
+} from "@t3tools/provider-core/server/maintenanceResolver";
 import {
   haveProviderSnapshotSettingsChanged,
   makeProviderSnapshotSettingsSource,
@@ -95,6 +108,7 @@ function modelsFromDiscovery(
     | Pick<AcpRegistryLiveConfiguration, "models" | "currentModelId" | "configOptions">
     | undefined,
   customModels: ReadonlyArray<CustomModelSetting>,
+  profile?: AcpAgentProfile,
 ): ReadonlyArray<ServerProviderModel> {
   const discovered = discovery?.models ?? [];
   // Discovered session config options and modes ride on every model so the
@@ -121,7 +135,23 @@ function modelsFromDiscovery(
           ...(model.id === discovery?.currentModelId ? { isDefault: true } : {}),
           capabilities,
         }));
-  return providerModelsFromSettings(builtInModels, customModels, capabilities);
+  const models = providerModelsFromSettings(builtInModels, customModels, capabilities);
+  if (profile?.flavor?.sessionModeForPolicy === undefined) return models;
+  // Do not offer a second mode picker whose stored choice the adapter must
+  // ignore. Apply this after custom-model merging so it stays true on every
+  // discovery and live-refresh path, including user-supplied model options.
+  const managedModeIds = new Set([
+    ACP_SESSION_MODE_OPTION_ID,
+    ...(profile.managedModeOptionIds ?? []),
+  ]);
+  return models.map((model) => {
+    const current = model.capabilities?.optionDescriptors;
+    if (current === undefined) return model;
+    const visible = current.filter((option) => !managedModeIds.has(option.id));
+    return visible.length === current.length
+      ? model
+      : { ...model, capabilities: { ...model.capabilities, optionDescriptors: visible } };
+  });
 }
 
 export function acpRegistrySnapshotReadiness(
@@ -239,7 +269,7 @@ function baseSnapshot(
             : input.settings.agentId.length > 0),
     },
     ...(input.message ? { message: input.message } : {}),
-    models: modelsFromDiscovery(input.probe?.probe, input.settings.customModels),
+    models: modelsFromDiscovery(input.probe?.probe, input.settings.customModels, input.profile),
     ...(input.probe === undefined
       ? {}
       : {
@@ -275,12 +305,13 @@ export function applyAcpRegistryLiveConfiguration(
   provider: ServerProvider,
   configuration: AcpRegistryLiveConfiguration,
   customModels: ReadonlyArray<CustomModelSetting>,
+  profile?: AcpAgentProfile,
 ): ServerProvider {
   const { message: _staleProbeMessage, ...snapshot } = provider;
   return {
     ...snapshot,
     status: provider.enabled ? "ready" : provider.status,
-    models: modelsFromDiscovery(configuration, customModels),
+    models: modelsFromDiscovery(configuration, customModels, profile),
   };
 }
 
@@ -348,7 +379,7 @@ export function buildCheckedAcpRegistrySnapshot(
       ? { documentationUrl: input.inspection.documentationUrl }
       : {}),
     installed: readiness.installed,
-    version: readiness.version,
+    version: input.probe?.agentVersion ?? readiness.version,
     // A failed discovery probe on a ready installation is a warning, not an
     // outage: the agent binary is present and a real turn may still work
     // (for example after the user completes authentication).
@@ -467,14 +498,44 @@ export const checkAcpRegistryProviderReadiness = Effect.fn(
     : snapshot;
 });
 
-export type AcpRegistryDriverEnv = AcpRegistryAdapterV2DriverEnv | ProviderHost.ProviderHost;
+export type AcpRegistryDriverEnv =
+  | AcpRegistryAdapterV2DriverEnv
+  | ProviderHost.ProviderHost
+  | HttpClient.HttpClient
+  | ProviderLatestVersions.ProviderLatestVersions;
+
+/** Native CLI versions remain readable even when ACP authentication is unavailable. */
+export const checkAcpAgentCliVersion = Effect.fn("checkAcpAgentCliVersion")(function* (input: {
+  readonly snapshot: ServerProvider;
+  readonly commandPath: string;
+  readonly environment: NodeJS.ProcessEnv;
+}) {
+  if (!input.snapshot.enabled || !input.snapshot.installed) return input.snapshot;
+  const output = yield* readProviderMaintenanceOutput({
+    executable: input.commandPath,
+    args: ["--version"],
+    env: input.environment,
+    timeoutMs: 4_000,
+  });
+  // Hermes also prints Python and SDK versions. Never mistake one of those
+  // for the provider if its own banner could not report a version.
+  const banner =
+    NodeUtil.stripVTControlCharacters(output ?? "")
+      .trim()
+      .split(/\r?\n/, 1)[0] ?? "";
+  const version = banner.match(/\bv?(\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?)/)?.[1];
+  return { ...input.snapshot, version: version ?? input.snapshot.version };
+});
 
 /**
  * Builds a provider driver on the registry's local-command machinery. The
  * registry itself is one; dedicated ACP agents pass their own profile.
  */
 export const makeAcpAgentDriver = <Settings>(
-  definition: AcpAgentDriverDefinition<Settings> & { readonly metadata: ProviderDriverMetadata },
+  definition: AcpAgentDriverDefinition<Settings> & {
+    readonly metadata: ProviderDriverMetadata;
+    readonly maintenance?: ProviderMaintenanceCapabilitiesResolver;
+  },
 ): ProviderDriver<Settings, AcpRegistryDriverEnv> => ({
   driverKind: definition.profile?.driverKind ?? DRIVER_KIND,
   metadata: definition.metadata,
@@ -501,6 +562,10 @@ export const makeAcpAgentDriver = <Settings>(
       }
       const crypto = yield* Crypto.Crypto;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const httpClient = yield* HttpClient.HttpClient;
+      const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
       const hostEnvironment = yield* HostProcess.Environment;
       const host = yield* ProviderHost.ProviderHost;
       const continuationIdentity = defaultProviderContinuationIdentity({
@@ -518,6 +583,23 @@ export const makeAcpAgentDriver = <Settings>(
       const processEnvironment = yield* mergeProviderInstanceEnvironment(
         environment,
         hostEnvironment,
+      );
+      const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
+        definition.maintenance
+          ? resolveProviderMaintenanceCapabilitiesEffect(definition.maintenance, {
+              binaryPath: effectiveConfig.commandPath,
+              env: processEnvironment,
+            }).pipe(
+              Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+              Effect.provideService(FileSystem.FileSystem, fs),
+              Effect.provideService(Path.Path, path),
+            )
+          : Effect.succeed(
+              makeManualOnlyProviderMaintenanceCapabilities({
+                provider: driverKind,
+                packageName: null,
+              }),
+            ),
       );
       const orchestrationAdapter = yield* makeAcpAgentAdapterV2Driver(definition)
         .create({
@@ -582,15 +664,27 @@ export const makeAcpAgentDriver = <Settings>(
                         withCommands,
                         liveConfiguration,
                         effectiveConfig.customModels,
+                        profile,
                       ),
                   });
                   return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
                 }),
               );
         });
-      const checkProvider = checkAcpRegistryProviderReadiness(readinessInput).pipe(
+      const checkReadiness = checkAcpRegistryProviderReadiness(readinessInput).pipe(
         Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
         Effect.flatMap(withLiveRuntimeState),
+      );
+      const checkProvider = checkReadiness.pipe(
+        Effect.flatMap((provider) =>
+          definition.maintenance
+            ? checkAcpAgentCliVersion({
+                snapshot: provider,
+                commandPath: effectiveConfig.commandPath,
+                environment: processEnvironment,
+              }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
+            : Effect.succeed(provider),
+        ),
       );
       const enrichProvider = checkAcpRegistryProviderStatus(
         {
@@ -607,6 +701,7 @@ export const makeAcpAgentDriver = <Settings>(
         readonly generation: number;
         readonly entry: {
           readonly provider: ServerProvider;
+          readonly baseVersion: string | null;
           readonly expiresAt: number;
         } | null;
       }>({ generation: 0, entry: null });
@@ -623,14 +718,18 @@ export const makeAcpAgentDriver = <Settings>(
           if (
             cached !== null &&
             cached.expiresAt > now &&
-            cached.provider.version === baseSnapshot.version
+            cached.baseVersion === baseSnapshot.version
           ) {
             return {
               provider: { ...cached.provider, checkedAt: baseSnapshot.checkedAt },
               generation: cacheState.generation,
             };
           }
-          const enriched = yield* enrichProvider;
+          const discovered = yield* enrichProvider;
+          const enriched =
+            discovered.installed && discovered.version === null
+              ? { ...discovered, version: baseSnapshot.version }
+              : discovered;
           if (enriched.status === "ready") {
             yield* Ref.update(enrichmentCache, (current) =>
               current.generation === cacheState.generation
@@ -638,6 +737,7 @@ export const makeAcpAgentDriver = <Settings>(
                     ...current,
                     entry: {
                       provider: enriched,
+                      baseVersion: baseSnapshot.version,
                       expiresAt: now + PROBE_SUCCESS_TTL_MS,
                     },
                   }
@@ -650,19 +750,13 @@ export const makeAcpAgentDriver = <Settings>(
       const snapshot = yield* makeManagedServerProvider<
         ProviderSnapshotSettings<AcpRegistrySettings>
       >({
-        resolveMaintenance: () =>
-          Effect.succeed(
-            makeManualOnlyProviderMaintenanceCapabilities({
-              provider: driverKind,
-              packageName: null,
-            }),
-          ),
+        resolveMaintenance,
         getSettings: snapshotSettings.getSettings,
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,
-        initialSnapshot: () => checkProvider,
+        initialSnapshot: () => checkReadiness,
         checkProvider,
-        enrichSnapshot: ({ snapshot, getSnapshot, publishSnapshot }) => {
+        enrichSnapshot: ({ settings, snapshot, getSnapshot, publishSnapshot }) => {
           if (!snapshot.installed) return Effect.void;
           const publishEnrichment = (
             Option.isSome(runtimeCoordinator)
@@ -678,12 +772,26 @@ export const makeAcpAgentDriver = <Settings>(
               Option.match({
                 onNone: () => Effect.void,
                 onSome: ({ provider, generation }) =>
-                  liveSnapshotSemaphore.withPermit(
-                    Ref.get(enrichmentCache).pipe(
-                      Effect.flatMap((current) =>
-                        current.generation === generation
-                          ? withLiveRuntimeState(provider).pipe(Effect.flatMap(publishSnapshot))
-                          : Effect.void,
+                  resolveMaintenance().pipe(
+                    Effect.flatMap((capabilities) =>
+                      enrichProviderSnapshotWithVersionAdvisory(provider, capabilities, {
+                        enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+                      }),
+                    ),
+                    Effect.provideService(HttpClient.HttpClient, httpClient),
+                    Effect.provideService(
+                      ProviderLatestVersions.ProviderLatestVersions,
+                      latestVersions,
+                    ),
+                    Effect.flatMap((enriched) =>
+                      liveSnapshotSemaphore.withPermit(
+                        Ref.get(enrichmentCache).pipe(
+                          Effect.flatMap((current) =>
+                            current.generation === generation
+                              ? withLiveRuntimeState(enriched).pipe(Effect.flatMap(publishSnapshot))
+                              : Effect.void,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -718,6 +826,7 @@ export const makeAcpAgentDriver = <Settings>(
                         current,
                         configuration,
                         effectiveConfig.customModels,
+                        profile,
                       ),
                     ),
                   ),
@@ -833,7 +942,8 @@ export const makeAcpAgentDriver = <Settings>(
         auth,
         snapshot: {
           ...snapshot,
-          refresh: snapshot.refresh.pipe(
+          refresh: liveSnapshotSemaphore.withPermit(invalidateEnrichmentCache).pipe(
+            Effect.andThen(snapshot.refresh),
             Effect.tap(() => controller.refreshMethods ?? Effect.void),
           ),
         },

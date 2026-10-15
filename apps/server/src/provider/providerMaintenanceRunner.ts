@@ -92,6 +92,7 @@ const runProviderMaintenanceCommandWithSpawner = Effect.fn("ProviderMaintenanceR
     readonly command: string;
     readonly args: ReadonlyArray<string>;
     readonly env?: NodeJS.ProcessEnv;
+    readonly timeoutMs?: number;
     readonly onProgress?: (line: string) => Effect.Effect<void>;
   }) {
     const collectCommandResult = Effect.fn("ProviderMaintenanceRunner.collectCommandResult")(
@@ -186,7 +187,7 @@ const runProviderMaintenanceCommandWithSpawner = Effect.fn("ProviderMaintenanceR
 
     return yield* collectCommandResult().pipe(
       Effect.scoped,
-      Effect.timeoutOption(Duration.millis(UPDATE_TIMEOUT_MS)),
+      Effect.timeoutOption(Duration.millis(input.timeoutMs ?? UPDATE_TIMEOUT_MS)),
       Effect.map((result) =>
         Option.match(result, {
           onSome: (value) => value,
@@ -301,6 +302,7 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
       command: update.executable,
       args: update.args,
       onProgress,
+      ...(update.timeoutMs ? { timeoutMs: update.timeoutMs } : {}),
       ...(update.env ? { env: update.env } : {}),
     });
   const commandCoordinator = yield* makeProviderMaintenanceCommandCoordinator({
@@ -514,6 +516,9 @@ export const make = Effect.fn("ProviderMaintenanceRunner.make")(function* () {
             }
 
             yield* setRunningMessage("Verifying the installed version");
+            if (fresh.latestVersionLookup) {
+              yield* latestVersions.invalidate(fresh.latestVersionLookup.cacheKey);
+            }
             // Homebrew's "latest" moves once the upgrade lands; read it again.
             const verified = yield* providerRegistry.getProviderMaintenanceCapabilitiesForInstance(
               instanceId,

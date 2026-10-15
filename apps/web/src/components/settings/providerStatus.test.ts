@@ -99,6 +99,26 @@ it("does not suggest copying a command that installs an incompatible latest vers
   ).not.toBeNull();
 });
 
+it("offers the native updater without claiming an update when the latest version is unknown", () => {
+  const advisory = {
+    status: "unknown" as const,
+    currentVersion: "1.0.0",
+    latestVersion: null,
+    updateCommand: "hermes update --yes",
+    canUpdate: true,
+    checkedAt: provider.checkedAt,
+    message: null,
+  };
+  expect(getProviderVersionAdvisoryPresentation(advisory)).toMatchObject({
+    title: "Update provider",
+    updateCommand: "hermes update --yes",
+    targetVersion: null,
+  });
+  expect(
+    getProviderVersionAdvisoryPresentation({ ...advisory, canUpdate: false, updateCommand: null }),
+  ).toBeNull();
+});
+
 it("shows compatibility in the version popover even when the installed version is current", () => {
   const advisory = {
     status: "current" as const,

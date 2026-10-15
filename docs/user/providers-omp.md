@@ -17,3 +17,9 @@ itself; **Launch arguments** follow it.
 Models, thinking level, and OMP's Default and Plan modes come from OMP. Send `/compact`, or use
 **Compact** from the context meter, to run OMP's compaction. OMP reports when a conversation is
 too short to compact. The context meter and cost follow OMP's usage reports.
+
+## Updates
+
+Use OMP's update action in **Settings → Providers** to run its native updater. It keeps OMP's
+selected release channel and handles companion packages. Tern-managed copies, source checkouts,
+Nix, and pinned mise installs remain managed outside T3 Code.

@@ -14,7 +14,7 @@ import {
 import { compareSemverVersions } from "@t3tools/shared/semver";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { causeErrorTag } from "@t3tools/shared/observability";
-import { resolveCommandPath } from "@t3tools/shared/shell";
+import { resolveCommandPath, resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Cache from "effect/Cache";
 import * as Config from "effect/Config";
 import * as DateTime from "effect/DateTime";
@@ -64,6 +64,43 @@ const CommandLookupEnvConfig = Config.all({
 }).pipe(Config.map(compactEnv));
 
 const readCommandLookupEnv = CommandLookupEnvConfig.pipe(Effect.orElseSucceed(() => ({})));
+
+/** Bounded, noninteractive installer probe. Never publish its raw output. */
+export const readProviderMaintenanceOutput = Effect.fn("readProviderMaintenanceOutput")(
+  function* (input: {
+    readonly executable: string;
+    readonly args: ReadonlyArray<string>;
+    readonly env: NodeJS.ProcessEnv;
+    readonly timeoutMs?: number;
+  }) {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    return yield* Effect.gen(function* () {
+      const command = yield* resolveSpawnCommand(input.executable, input.args, { env: input.env });
+      const child = yield* spawner.spawn(
+        ChildProcess.make(command.command, command.args, {
+          env: input.env,
+          extendEnv: true,
+          shell: command.shell,
+        }),
+      );
+      yield* Effect.addFinalizer(() => child.kill().pipe(Effect.ignore));
+      const [stdout, exitCode] = yield* Effect.all(
+        [
+          collectUint8StreamText({ stream: child.stdout, maxBytes: 128 * 1_024 }),
+          child.exitCode,
+          Stream.runDrain(child.stderr),
+        ],
+        { concurrency: "unbounded" },
+      );
+      return Number(exitCode) === 0 && !stdout.truncated ? stdout.text : null;
+    }).pipe(
+      Effect.scoped,
+      Effect.timeoutOption(input.timeoutMs ?? 60_000),
+      Effect.map(Option.getOrNull),
+      Effect.orElseSucceed(() => null),
+    );
+  },
+);
 
 /** Where the provider executable was found; every path is absolute. */
 export interface ProviderMaintenanceResolutionContext {
@@ -762,6 +799,13 @@ const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (pack
 export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVersion")(function* (
   maintenanceCapabilities: ProviderMaintenanceCapabilities,
 ) {
+  if (maintenanceCapabilities.latestVersionLookup) {
+    const latestVersions = yield* ProviderLatestVersions.ProviderLatestVersions;
+    return yield* latestVersions.cached(
+      maintenanceCapabilities.latestVersionLookup.cacheKey,
+      maintenanceCapabilities.latestVersionLookup.read,
+    );
+  }
   if (maintenanceCapabilities.latestVersion !== undefined) {
     return maintenanceCapabilities.latestVersion;
   }

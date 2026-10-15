@@ -297,6 +297,7 @@ export interface AcpRegistryConfigurationProbeInput {
 type AcpRegistryManagementInput = AcpRegistryConfigurationProbeInput;
 
 export interface AcpRegistryConfigurationProbeResult {
+  readonly agentVersion?: string;
   readonly probe: AcpRegistryProbeResult;
   readonly slashCommands: ReadonlyArray<ServerProviderSlashCommand>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
@@ -437,6 +438,14 @@ export const probeAcpRegistryConfiguration = Effect.fn("AcpRegistryProbe.probeCo
       ),
     );
     return {
+      ...(result.started.initializeResult.agentInfo?.version
+        ? {
+            agentVersion: boundedText(
+              result.started.initializeResult.agentInfo.version,
+              MAX_ID_LENGTH,
+            ),
+          }
+        : {}),
       probe: acpRegistryProbeResult(
         input.instanceId,
         result.started,

@@ -319,7 +319,14 @@ function flattenCompositions(
   const normalized = Object.fromEntries(
     Object.entries(value).map(([key, child]) => [key, flattenCompositions(child, definitions)]),
   );
-  const { allOf, anyOf, ...base } = normalized;
+  const { allOf, anyOf } = normalized;
+  const base = { ...normalized };
+  // Property maps can contain fields literally named `anyOf` or `allOf`.
+  // Only array-valued composition keywords are schemas to distribute. Dropping
+  // the `anyOf` field from TitledMultiSelectItems made its required field
+  // impossible to satisfy, generating Schema.Never for valid multi-selects.
+  if (isJsonArray(allOf)) delete base.allOf;
+  if (isJsonArray(anyOf)) delete base.anyOf;
   const merge = (left: Schema.Json, right: Schema.Json): Schema.Json => {
     if (
       left === null ||

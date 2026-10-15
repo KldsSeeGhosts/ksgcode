@@ -1060,6 +1060,19 @@ it("does not offer incompatible latest versions and restores suggestions after p
   }
 });
 
+it("keeps native unknown-version updates in Settings without announcing an available update", () => {
+  const snapshot = provider({
+    driver: driver("hermes"),
+    advisoryStatus: "unknown",
+    latestVersion: null,
+    canUpdate: true,
+    updateCommand: "hermes update --yes",
+  });
+  expect(isProviderSettingsUpdateCandidate(snapshot)).toBe(true);
+  expect(isProviderUpdateCandidate(snapshot)).toBe(false);
+  expect(collectProviderUpdateCandidates([snapshot])).toEqual([]);
+});
+
 describe("getProviderUpdateRunToastView", () => {
   const updateState = (
     status: "succeeded" | "failed",

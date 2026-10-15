@@ -9,6 +9,11 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Sink from "effect/Sink";
+import * as Stream from "effect/Stream";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import { ACP_SESSION_MODE_OPTION_ID } from "@t3tools/provider-acp/server/sessionConfig";
 
 import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import {
@@ -18,6 +23,7 @@ import {
   buildCheckedAcpRegistrySnapshot,
   checkAcpRegistryProviderReadiness,
   checkAcpRegistryProviderStatus,
+  checkAcpAgentCliVersion,
 } from "./driver.ts";
 
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -35,6 +41,54 @@ const noSessionManagement = {
   canDelete: false,
   canConfigureProviders: false,
 } as const;
+
+it.effect(
+  "reads the provider banner without mistaking Hermes's Python or SDK versions for it",
+  () =>
+    Effect.gen(function* () {
+      const snapshot = buildCheckedAcpRegistrySnapshot({
+        ...identity,
+        settings: decodeSettings({ source: "local", commandPath: "hermes" }),
+        checkedAt: "2026-10-15T00:00:00.000Z",
+        inspection: { status: "ready", agentId: "", version: null, distribution: "local" },
+      });
+      for (const [stdout, expected] of [
+        ["Hermes Agent v0.24.1+3.abcdef\nPython: 3.14.2\nOpenAI SDK: 2.0.0", "0.24.1+3.abcdef"],
+        ["Hermes Agent unknown\nPython: 3.14.2", null],
+        ["\u001b[36momp/18.1.0-canary.2\u001b[0m\n", "18.1.0-canary.2"],
+        ["0.65.1\n", "0.65.1"],
+      ] as const) {
+        const result = yield* checkAcpAgentCliVersion({
+          snapshot,
+          commandPath: "/tools/provider",
+          environment: {},
+        }).pipe(
+          Effect.provideService(HostProcess.Platform, "darwin"),
+          Effect.provideService(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make(() =>
+              Effect.succeed(
+                ChildProcessSpawner.makeHandle({
+                  pid: ChildProcessSpawner.ProcessId(1),
+                  exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+                  isRunning: Effect.succeed(false),
+                  kill: () => Effect.void,
+                  unref: Effect.succeed(Effect.void),
+                  stdin: Sink.drain,
+                  stdout: Stream.encodeText(Stream.make(stdout)),
+                  stderr: Stream.empty,
+                  all: Stream.empty,
+                  getInputFd: () => Sink.drain,
+                  getOutputFd: () => Stream.empty,
+                }),
+              ),
+            ),
+          ),
+        );
+        expect(result.version).toBe(expected);
+      }
+    }),
+);
 
 function catalogWithInspection(
   inspection: AcpRegistrySupport.AcpRegistryInspection,
@@ -64,6 +118,7 @@ describe("dedicated ACP agent profiles", () => {
       checkedAt: "2026-10-14T10:00:00.000Z",
       inspection: { status: "ready", agentId: "", version: null, distribution: "local" },
       probe: {
+        agentVersion: "0.24.1",
         probe: {
           instanceId: identity.instanceId,
           ready: true,
@@ -80,6 +135,7 @@ describe("dedicated ACP agent profiles", () => {
     });
 
     expect(provider.driver).toBe("hermes");
+    expect(provider.version).toBe("0.24.1");
     expect(provider.reportsContextWindow).toBe(true);
     expect(provider.slashCommands.map((command) => command.name)).toEqual(["compact", "compress"]);
 
@@ -99,6 +155,79 @@ describe("dedicated ACP agent profiles", () => {
         profile,
       ).message,
     ).toBe("Hermes executable is not available on this environment's PATH.");
+  });
+
+  it("shows only T3's permission selector for policy-managed native modes on discovery and refresh", () => {
+    const modeCapabilities = createModelCapabilities({
+      optionDescriptors: [
+        {
+          id: ACP_SESSION_MODE_OPTION_ID,
+          label: "Native mode",
+          type: "select",
+          options: [{ id: "yolo", label: "Yolo" }],
+        },
+        {
+          id: "mode",
+          label: "Permission mode",
+          type: "select",
+          options: [{ id: "yolo", label: "Yolo" }],
+        },
+        {
+          id: "thought",
+          label: "Thinking",
+          type: "select",
+          options: [{ id: "max", label: "Max" }],
+        },
+      ],
+    });
+    const managedProfile = {
+      ...profile,
+      managedModeOptionIds: ["mode"],
+      flavor: { ...profile.flavor, sessionModeForPolicy: () => "build" },
+    };
+    const settings = decodeSettings({
+      source: "local",
+      commandPath: "fixture",
+      customModels: [{ slug: "custom", capabilities: modeCapabilities }],
+    });
+    const configuration = {
+      models: [{ id: "discovered", name: "Agent model", description: null }],
+      currentModelId: "discovered",
+      configOptions: modeCapabilities.optionDescriptors ?? [],
+    };
+    const provider = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      profile: managedProfile,
+      settings,
+      checkedAt: "2026-10-15T10:00:00.000Z",
+      inspection: { status: "ready", agentId: "", version: null, distribution: "local" },
+      probe: {
+        probe: {
+          ...configuration,
+          instanceId: identity.instanceId,
+          ready: true,
+          icon: null,
+          authMethods: [],
+          sessionManagement: noSessionManagement,
+        },
+        slashCommands: [],
+        skills: [],
+      },
+    });
+    const refreshed = applyAcpRegistryLiveConfiguration(
+      provider,
+      configuration,
+      settings.customModels,
+      managedProfile,
+    );
+    for (const snapshot of [provider, refreshed]) {
+      expect(snapshot.models.map((model) => model.slug)).toEqual(["discovered", "custom"]);
+      for (const model of snapshot.models) {
+        expect(model.capabilities?.optionDescriptors?.map((option) => option.id)).toEqual([
+          "thought",
+        ]);
+      }
+    }
   });
 
   it("retains custom model names and options through discovery and live refresh", () => {

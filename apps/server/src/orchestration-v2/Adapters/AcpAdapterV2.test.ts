@@ -30,6 +30,8 @@ import {
   type ProviderOptionDescriptor,
 } from "@t3tools/contracts";
 import { GrokSettings } from "@t3tools/provider-grok/settings";
+import { OMP_PROFILE, OMP_PROVIDER } from "@t3tools/provider-omp/server";
+import { ZCODE_PROFILE, ZCODE_PROVIDER } from "@t3tools/provider-zcode/server";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as DateTime from "effect/DateTime";
@@ -4187,6 +4189,177 @@ describe("AcpAdapterV2", () => {
       yield* Fiber.join(interruptFiber);
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
+
+  for (const agent of [
+    {
+      driver: OMP_PROVIDER,
+      mapper: OMP_PROFILE.flavor.mapElicitationForm,
+      environmentKey: "T3_ACP_EMIT_OMP_ASK_DIALOG",
+      ids: ["q0", "q1"],
+      otherIds: ["q0__other", "q1__other"],
+      headers: ["Scope", "Components"],
+      answerKinds: ["selected", "custom", "cancelled"],
+    },
+    {
+      driver: ZCODE_PROVIDER,
+      mapper: ZCODE_PROFILE.flavor.mapElicitationForm,
+      environmentKey: "T3_ACP_EMIT_ZCODE_ASK_DIALOG",
+      ids: ["q_0", "q_1"],
+      otherIds: ["q_0_other", "q_1_other"],
+      headers: ["Question 1", "Question 2"],
+      answerKinds: ["selected", "custom", "cancelled", "skipped", "mixed"],
+    },
+  ] as const) {
+    it.live.each(agent.answerKinds)(
+      `asks ${agent.driver} questions once and returns %s answers in the provider's form`,
+      (answerKind) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const instanceId = ProviderInstanceId.make(`${agent.driver}-ask-${answerKind}`);
+          const threadId = ThreadId.make(`thread-${agent.driver}-ask-${answerKind}`);
+          const adapter = yield* makeAcpAdapterV2({
+            instanceId,
+            selfInvocation: yield* resolveSelfInvocation(),
+            flavor: {
+              driver: agent.driver,
+              capabilities: AcpProviderCapabilitiesV2,
+              mapElicitationForm: agent.mapper,
+              makeRuntime: makeMockRuntime({
+                childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+                mockAgentPath: yield* path.fromFileUrl(
+                  new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+                ),
+                environment: { [agent.environmentKey]: "1" },
+              }),
+            },
+          });
+          const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+            cwd: process.cwd(),
+          });
+          const modelSelection = { instanceId, model: "default" } as const;
+          const runtime = yield* adapter.openSession({
+            threadId,
+            providerSessionId: ProviderSessionId.make(`session-${agent.driver}-ask-${answerKind}`),
+            modelSelection,
+            runtimePolicy,
+          });
+          const providerThread = yield* runtime.ensureThread({
+            threadId,
+            modelSelection,
+            runtimePolicy,
+          });
+          yield* runtime.startTurn(
+            makeTurnInput({
+              threadId,
+              providerThread,
+              instanceId,
+              runtimePolicy,
+              now: yield* DateTime.now,
+            }),
+          );
+          const questionEvent = Option.getOrThrow(
+            yield* runtime.events.pipe(
+              Stream.filter(
+                (event) =>
+                  event.type === "turn_item.updated" &&
+                  event.turnItem.type === "user_input_request" &&
+                  event.turnItem.status === "waiting",
+              ),
+              Stream.runHead,
+            ),
+          );
+          if (
+            questionEvent.type !== "turn_item.updated" ||
+            questionEvent.turnItem.type !== "user_input_request"
+          ) {
+            return yield* Effect.die("Expected a provider question form");
+          }
+          const item = questionEvent.turnItem;
+          assert.deepEqual(
+            item.questions.map((question) => question.id),
+            [...agent.ids],
+          );
+          // Identical wording is not a duplicate when two distinct fields ask it.
+          assert.deepEqual(
+            item.questions.map((question) => question.question),
+            ["Which scope?", "Which scope?"],
+          );
+          assert.deepEqual(
+            item.questions.map((question) => question.header),
+            [...agent.headers],
+          );
+          assert.deepEqual(item.questions[0]?.options, [
+            { label: "Workspace", value: "workspace", description: "Current workspace" },
+            { label: "Session", value: "session", description: "This session only" },
+            ...(agent.driver === ZCODE_PROVIDER
+              ? [
+                  {
+                    label: "Skip this question",
+                    value: "__skip__",
+                    description: "Skip this question",
+                  },
+                ]
+              : []),
+          ]);
+          assert.isTrue(item.questions[1]?.multiSelect);
+          assert.isTrue(item.questions.every((question) => question.allowCustomAnswer));
+          const [singleId, multipleId] = agent.ids;
+          const [singleOtherId, multipleOtherId] = agent.otherIds;
+          const answers =
+            answerKind === "custom"
+              ? { [singleId]: "Another workspace", [multipleId]: "Another component" }
+              : answerKind === "mixed"
+                ? { [singleId]: "workspace", [multipleId]: ["api", "Another component"] }
+                : answerKind === "skipped"
+                  ? { [singleId]: "__skip__", [multipleId]: ["api"] }
+                  : { [singleId]: "workspace", [multipleId]: ["api", "ui"] };
+          yield* runtime.respondToRuntimeRequest({
+            requestId: item.requestId,
+            ...(answerKind === "cancelled"
+              ? { decision: "cancel" as const }
+              : {
+                  answers,
+                }),
+          });
+          const events = yield* runtime.events.pipe(
+            Stream.takeUntil((event) => event.type === "turn.terminal"),
+            Stream.runCollect,
+          );
+          const outputs = events.flatMap((event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "assistant_message"
+              ? [event.turnItem.text]
+              : [],
+          );
+          const expected =
+            answerKind === "cancelled"
+              ? { action: "cancel" }
+              : {
+                  action: "accept",
+                  content:
+                    answerKind === "custom"
+                      ? {
+                          [singleOtherId]: "Another workspace",
+                          [multipleOtherId]: "Another component",
+                        }
+                      : answerKind === "mixed"
+                        ? {
+                            [singleId]: "workspace",
+                            [multipleId]: ["api"],
+                            [multipleOtherId]: "Another component",
+                          }
+                        : answerKind === "skipped"
+                          ? { [singleId]: "__skip__", [multipleId]: ["api"] }
+                          : { [singleId]: "workspace", [multipleId]: ["api", "ui"] },
+                };
+          assert.include(outputs, JSON.stringify(expected));
+          assert.isTrue(
+            events.some((event) => event.type === "turn.terminal" && event.status === "completed"),
+          );
+        }).pipe(Effect.provide(layerTest), Effect.scoped),
+    );
+  }
 
   it.live("carries elicitation request identity through the completed stdout write", () =>
     Effect.gen(function* () {
