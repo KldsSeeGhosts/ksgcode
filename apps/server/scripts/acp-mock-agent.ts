@@ -18,6 +18,7 @@ import type * as AcpCompat from "effect-acp/compat";
 import { beginAcpMockPrompt } from "./acpMockCancellationState.ts";
 
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
+const nativeSteering = process.env.T3_ACP_NATIVE_STEERING;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
@@ -62,6 +63,13 @@ const hangPromptForever = process.env.T3_ACP_HANG_PROMPT_FOREVER === "1";
 const clientFsProbePath = process.env.T3_ACP_CLIENT_FS_PROBE_PATH;
 const clientFsProbeLogPath = process.env.T3_ACP_CLIENT_FS_PROBE_LOG_PATH;
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeMockSteer = Schema.decodeUnknownEffect(
+  Schema.Struct({
+    turnId: Schema.String,
+    sessionId: Schema.String,
+    messageId: Schema.String,
+  }),
+);
 const hangAfterPermission = process.env.T3_ACP_HANG_AFTER_PERMISSION === "1";
 const hangFirstPromptForever = process.env.T3_ACP_HANG_FIRST_PROMPT_FOREVER === "1";
 const emitLateUpdateAfterCancel = process.env.T3_ACP_EMIT_LATE_UPDATE_AFTER_CANCEL === "1";
@@ -466,6 +474,8 @@ const program = Effect.gen(function* () {
   const resumeRelease = yield* Deferred.make<void>();
   const nativeCancelRequested = yield* Deferred.make<void>();
   const nativeCancelRelease = yield* Deferred.make<void>();
+  const steerRelease = yield* Deferred.make<void>();
+  let steeringTurnId: unknown;
   const publishAntigravityCommands = (targetSessionId: string) =>
     agent.client.sessionUpdate({
       sessionId: targetSessionId,
@@ -509,7 +519,12 @@ const program = Effect.gen(function* () {
       return {
         protocolVersion: 2,
         info: { name: "t3-acp-mock-agent", version: "0.0.0" },
-        _meta: { modelState: modelState() },
+        _meta: {
+          modelState: modelState(),
+          ...(nativeSteering === undefined
+            ? {}
+            : { "t3code/steering": { version: 1, idempotent: true, holdsPrompt: true } }),
+        },
         capabilities: {
           session: {
             ...(supportsSessionLifecycle ? { fork: {}, additionalDirectories: {} } : {}),
@@ -897,6 +912,19 @@ const program = Effect.gen(function* () {
       const requestedSessionId = String(request.sessionId ?? sessionId);
       beginAcpMockPrompt(cancelledSessions, requestedSessionId);
       promptCount += 1;
+      if (nativeSteering !== undefined) {
+        steeringTurnId = request._meta?.["t3code/turnId"];
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            messageId: "steer-ready",
+            content: { type: "text", text: "ready-for-steering" },
+          },
+        });
+        yield* Deferred.await(steerRelease);
+        return yield* finishPrompt(requestedSessionId, "end_turn");
+      }
       if (
         process.env.T3_ACP_CRASH_PROMPT === "1" &&
         request.prompt.some((part) => part.type === "text" && part.text === "crash now")
@@ -2441,6 +2469,37 @@ const program = Effect.gen(function* () {
   );
 
   yield* agent.handleUnknownExtRequest((method, params) => {
+    if (method === "_test/finish-steering") {
+      return Deferred.succeed(steerRelease, undefined).pipe(Effect.as({}));
+    }
+    if (method === "_t3/steer" && nativeSteering !== undefined) {
+      return Effect.gen(function* () {
+        const request = yield* decodeMockSteer(params).pipe(
+          Effect.mapError(() => AcpError.AcpRequestError.invalidParams("Invalid mock steer")),
+        );
+        if (request.turnId !== steeringTurnId) {
+          return { status: "turn_settled" };
+        }
+        if (nativeSteering === "malformed") return { unexpected: true };
+        if (nativeSteering === "error") {
+          return yield* AcpError.AcpRequestError.internalError("Lost admission acknowledgement");
+        }
+        if (nativeSteering === "turn_settled") {
+          yield* Deferred.succeed(steerRelease, undefined);
+          return { status: "turn_settled" };
+        }
+        if (nativeSteering === "rejected") return { status: "rejected", reason: "test-refusal" };
+        yield* agent.client.sessionUpdate({
+          sessionId: request.sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            messageId: `steered-${request.messageId}`,
+            content: { type: "text", text: "native-steer-consumed" },
+          },
+        });
+        return { status: "accepted" };
+      });
+    }
     if (method === "_test/environment") {
       return Effect.succeed({
         inherited: process.env.T3_ACP_RUNTIME_AMBIENT === "sentinel",

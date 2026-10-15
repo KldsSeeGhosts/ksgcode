@@ -27,6 +27,7 @@ export const ZCODE_PROFILE = {
   displayName: "ZCode",
   managedModeOptionIds: ["mode"],
   flavor: {
+    activeSteering: { interruptsTools: false },
     supportsCompaction: true,
     mapElicitationForm: mapZcodeElicitationForm,
     // The bridge defaults to yolo independently of T3. Select the native mode

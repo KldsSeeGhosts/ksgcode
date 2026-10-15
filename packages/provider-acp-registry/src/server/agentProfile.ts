@@ -31,6 +31,7 @@ export interface AcpAgentProfile {
     Pick<
       AcpAdapterV2Flavor,
       | "capabilities"
+      | "activeSteering"
       | "supportsCompaction"
       | "compactionPrompt"
       | "supportsImagePrompts"

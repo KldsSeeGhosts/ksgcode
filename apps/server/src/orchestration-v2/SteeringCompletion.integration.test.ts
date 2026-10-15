@@ -17,6 +17,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -27,6 +28,8 @@ import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 
 const driver = ProviderDriverKind.make("codex");
 const instanceId = ProviderInstanceId.make("codex");
@@ -39,6 +42,8 @@ it.effect.each(
         [
           "before delivery",
           "during delivery",
+          "with uncertain delivery",
+          "with uncertain active delivery",
           "before dispatch",
           "after delivery",
           "without native steering",
@@ -67,6 +72,7 @@ it.effect.each(
       const steerEntered = yield* Deferred.make<void>();
       const rejectSteer = yield* Deferred.make<void>();
       let steerCalls = 0;
+      const steerReceipts = new Map<MessageId, "accepted" | "unknown">();
       const capabilities = {
         ...CodexProviderCapabilitiesV2,
         turns: {
@@ -142,16 +148,34 @@ it.effect.each(
                     },
                   });
                 }),
+              getSteerDelivery: (messageId) => Effect.succeed(steerReceipts.get(messageId)),
               steerTurn: (turn) =>
                 Effect.gen(function* () {
                   steerCalls += 1;
-                  if (timing === "after delivery") return;
+                  if (timing === "after delivery") {
+                    steerReceipts.set(turn.message.messageId, "accepted");
+                    return;
+                  }
+                  if (timing === "with uncertain active delivery") {
+                    steerReceipts.set(turn.message.messageId, "unknown");
+                    return yield* new ProviderAdapter.ProviderAdapterSteerRunError({
+                      driver,
+                      providerThreadId: turn.providerThread.id,
+                      providerTurnId: turn.providerTurnId,
+                      deliveryUncertain: true,
+                      cause: "admission response lost while provider is still running",
+                    });
+                  }
                   yield* Deferred.succeed(steerEntered, undefined);
                   yield* Deferred.await(rejectSteer);
+                  if (timing === "with uncertain delivery") {
+                    steerReceipts.set(turn.message.messageId, "unknown");
+                  }
                   return yield* new ProviderAdapter.ProviderAdapterSteerRunError({
                     driver,
                     providerThreadId: turn.providerThread.id,
                     providerTurnId: turn.providerTurnId,
+                    ...(timing === "with uncertain delivery" ? { deliveryUncertain: true } : {}),
                     cause: "turn already completed",
                   });
                 }),
@@ -295,8 +319,11 @@ it.effect.each(
         });
         if (timing !== "before dispatch") yield* dispatchSteer;
         if (timing === "after delivery") yield* worker.drain();
+        if (timing === "with uncertain active delivery") yield* worker.drain();
         const delivery =
-          timing === "during delivery" ? yield* worker.runOnce.pipe(Effect.forkScoped) : null;
+          timing === "during delivery" || timing === "with uncertain delivery"
+            ? yield* worker.runOnce.pipe(Effect.forkScoped)
+            : null;
         if (delivery !== null) yield* Deferred.await(steerEntered);
         const completed = yield* watch(
           (event) =>
@@ -330,7 +357,50 @@ it.effect.each(
         yield* worker.drain();
         yield* orchestrator.resumeQueuedRuns;
         yield* worker.drain();
+        const replaySteer = ProviderTurnControlService.ProviderTurnControlServiceV2.pipe(
+          Effect.flatMap((control) =>
+            control.steer({
+              threadId,
+              providerSessionId: first.providerThread.providerSessionId!,
+              providerThreadId: first.providerThread.id,
+              providerTurnId: turn.id,
+              messageId,
+            }),
+          ),
+          Effect.provide(
+            ProviderTurnControlService.layer.pipe(
+              Layer.provide(
+                Layer.mock(ProjectionStore.ProjectionStoreV2)({
+                  getProviderControlContext: () =>
+                    Effect.die(
+                      "An admission receipt must be checked before completed-turn fallback",
+                    ),
+                }),
+              ),
+            ),
+          ),
+        );
+        if (timing === "with uncertain delivery" || timing === "with uncertain active delivery") {
+          const replay = yield* replaySteer.pipe(Effect.result);
+          assert.equal(replay._tag, "Failure");
+          if (replay._tag === "Failure") {
+            assert.isFalse(replay.failure.retryable);
+            assert.notEqual(replay.failure.turnCompleted, true);
+          }
+          assert.equal(steerCalls, 1);
+          assert.equal(started.length, 1);
+          const final = yield* orchestrator.getThreadProjection(threadId);
+          assert.equal(final.messages.filter((message) => message.id === messageId).length, 1);
+          assert.isFalse(final.attempts.some((attempt) => attempt.status === "superseded"));
+          yield* worker.drain();
+          assert.equal(steerCalls, 1);
+          assert.equal(started.length, 1);
+          return;
+        }
         if (timing === "after delivery") {
+          // Replaying an acknowledged steer after completion must not turn it
+          // into a second user turn or send it to the provider again.
+          yield* replaySteer;
           assert.equal(steerCalls, 1);
           assert.equal(started.length, 1);
           if (mailbox) {

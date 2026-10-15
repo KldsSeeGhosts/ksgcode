@@ -16,7 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 
@@ -38,11 +38,13 @@ export class ProviderTurnControlError extends Schema.TaggedError<ProviderTurnCon
     operation: Schema.Literals(["interrupt", "restart", "steer"]),
     providerTurnId: ProviderTurnId,
     turnCompleted: Schema.optional(Schema.Boolean),
+    retryable: Schema.optional(Schema.Boolean),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
 
 const isProviderTurnControlError = Schema.is(ProviderTurnControlError);
+const isProviderAdapterSteerRunError = Schema.is(ProviderAdapter.ProviderAdapterSteerRunError);
 
 export interface ProviderTurnControlServiceV2Shape {
   readonly interrupt: (input: {
@@ -324,6 +326,24 @@ export const layer: Layer.Layer<
         ),
       steer: (input) =>
         Effect.gen(function* () {
+          const existingSession = yield* sessions.get(input.providerSessionId);
+          const delivery = Option.isSome(existingSession)
+            ? yield* (
+                existingSession.value.getSteerDelivery?.(input.messageId) ??
+                  Effect.succeed(undefined)
+              )
+            : undefined;
+          if (delivery === "accepted") return;
+          if (delivery === "unknown") {
+            return yield* new ProviderTurnControlError({
+              threadId: input.threadId,
+              operation: "steer",
+              providerTurnId: input.providerTurnId,
+              retryable: false,
+              cause:
+                "The ACP steering delivery could not be confirmed. Automatic resend is unsafe.",
+            });
+          }
           const context = yield* projections.getProviderControlContext(input.threadId, input);
           const ownership = context.message?.delegatedCompletion;
           if (ownership !== undefined) {
@@ -382,11 +402,15 @@ export const layer: Layer.Layer<
                     input.threadId,
                     input,
                   );
+                  const deliveryUncertain =
+                    isProviderAdapterSteerRunError(cause) && cause.deliveryUncertain === true;
                   return yield* new ProviderTurnControlError({
                     threadId: input.threadId,
                     operation: "steer",
                     providerTurnId: input.providerTurnId,
-                    turnCompleted: current.providerTurn?.status === "completed",
+                    turnCompleted:
+                      !deliveryUncertain && current.providerTurn?.status === "completed",
+                    ...(deliveryUncertain ? { retryable: false } : {}),
                     cause,
                   });
                 }),

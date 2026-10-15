@@ -34,6 +34,7 @@ export class OrchestrationEffectExecutionError extends Schema.TaggedError<Orches
   {
     effectId: Schema.String,
     effectType: Schema.String,
+    retryable: Schema.optional(Schema.Boolean),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {}
@@ -340,6 +341,9 @@ export const layerExecutor: Layer.Layer<
                     new OrchestrationEffectExecutionError({
                       effectId: effect.id,
                       effectType: effect.request.type,
+                      ...("retryable" in cause && cause.retryable === false
+                        ? { retryable: false }
+                        : {}),
                       cause,
                     }),
                 ),
@@ -761,32 +765,45 @@ export const layerWithOptions = (
           }
 
           const error = Cause.pretty(exit.cause);
+          const executionError = Cause.findErrorOption(exit.cause);
+          // An ambiguous steering response may already have been consumed. Retrying
+          // it, or converting it into a follow-up, can execute the input twice.
+          const retryable = !(
+            Option.isSome(executionError) &&
+            "retryable" in executionError.value &&
+            executionError.value.retryable === false
+          );
           const nonRetryable = isNonRetryableProviderTurnControlFailure(effect.request.type, error);
           yield* Effect.logWarning("Orchestration effect execution failed", {
             effectId: effect.id,
             effectType: effect.request.type,
             attemptCount: effect.attemptCount,
             nonRetryable,
+            retryable,
             error,
           });
-          // Prefer succeed for terminal interrupt races so the outbox does not
-          // keep a failed interrupt around; fail only when we must not retry.
-          const updated = nonRetryable
+          // Keep ambiguous delivery failures visible in the outbox. Terminal
+          // interrupt races, unlike failed deliveries, are already satisfied.
+          const updated = !retryable
             ? yield* outbox
-                .succeed({ effectId: effect.id, workerId })
+                .fail({ effectId: effect.id, workerId, error })
                 .pipe(Effect.onError((cause) => terminalizeClaim(effect, cause)))
-            : effect.attemptCount >= maxAttempts
+            : nonRetryable
               ? yield* outbox
-                  .fail({ effectId: effect.id, workerId, error })
+                  .succeed({ effectId: effect.id, workerId })
                   .pipe(Effect.onError((cause) => terminalizeClaim(effect, cause)))
-              : yield* outbox
-                  .retry({
-                    effectId: effect.id,
-                    workerId,
-                    error,
-                    delayMs: Math.min(30_000, 100 * 2 ** Math.max(0, effect.attemptCount - 1)),
-                  })
-                  .pipe(Effect.onError((cause) => requeueClaim(effect, cause)));
+              : effect.attemptCount >= maxAttempts
+                ? yield* outbox
+                    .fail({ effectId: effect.id, workerId, error })
+                    .pipe(Effect.onError((cause) => terminalizeClaim(effect, cause)))
+                : yield* outbox
+                    .retry({
+                      effectId: effect.id,
+                      workerId,
+                      error,
+                      delayMs: Math.min(30_000, 100 * 2 ** Math.max(0, effect.attemptCount - 1)),
+                    })
+                    .pipe(Effect.onError((cause) => requeueClaim(effect, cause)));
           if (!updated) {
             if (yield* wasCancelled(effect.id)) return true;
             return yield* new OrchestrationEffectWorkerError({

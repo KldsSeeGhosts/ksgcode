@@ -299,6 +299,8 @@ export class ProviderAdapterSteerRunError extends Schema.TaggedError<ProviderAda
     driver: ProviderDriverKind,
     providerThreadId: ProviderThreadId,
     providerTurnId: ProviderTurnId,
+    /** The provider may have admitted this input. Never resend it as a follow-up. */
+    deliveryUncertain: Schema.optional(Schema.Boolean),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -610,6 +612,10 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly steerTurn: (
     input: ProviderAdapterV2SteerInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;
+  /** Local admission receipts, checked before a completed-turn follow-up retry. */
+  readonly getSteerDelivery?: (
+    messageId: MessageId,
+  ) => Effect.Effect<"accepted" | "unknown" | undefined>;
   readonly stopTask?: (input: {
     readonly providerThread: OrchestrationV2ProviderThread;
     readonly taskId: string;

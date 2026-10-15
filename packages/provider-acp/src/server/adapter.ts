@@ -3,6 +3,7 @@
 import {
   type ChatAttachment,
   type ModelSelection,
+  type MessageId,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2PlanArtifact,
@@ -97,6 +98,7 @@ import {
   type AcpFormElicitation,
 } from "./elicitation.ts";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
+import { decodeAcpSteerResponse, supportsAcpActiveSteering } from "./activeSteering.ts";
 import {
   t3AcpPromptWithInstructions,
   type T3AcpInstructionState,
@@ -111,6 +113,7 @@ import {
 } from "@t3tools/provider-core/server/notification";
 import {
   makeProviderFailure,
+  makeProviderFailureTurnItem,
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 import { acpSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
@@ -224,6 +227,8 @@ export interface AcpAdapterV2Flavor {
   readonly promptFailure?: (cause: unknown) => OrchestrationV2ProviderFailure;
   readonly driver: ProviderDriverKind;
   readonly capabilities: OrchestrationV2ProviderCapabilities;
+  /** Enables the negotiated `_t3/steer` extension, never a concurrent prompt. */
+  readonly activeSteering?: { readonly interruptsTools: boolean };
   readonly clientCapabilitiesMeta?: NonNullable<
     EffectAcpSchema.InitializeRequest["clientCapabilities"]
   >["_meta"];
@@ -655,6 +660,7 @@ export const AcpProviderCapabilitiesV2 = {
 function negotiatedCapabilities(
   base: OrchestrationV2ProviderCapabilities,
   started: AcpSessionRuntime.AcpSessionRuntimeStartResult,
+  activeSteering: AcpAdapterV2Flavor["activeSteering"],
 ): OrchestrationV2ProviderCapabilities {
   const agent = started.initializeResult.agentCapabilities ?? {};
   const session = agent.sessionCapabilities;
@@ -665,6 +671,15 @@ function negotiatedCapabilities(
   const canFork = session?.fork != null;
   return {
     ...base,
+    ...(activeSteering === undefined
+      ? {}
+      : {
+          turns: {
+            ...base.turns,
+            supportsActiveSteering: supportsAcpActiveSteering(started.initializeResult._meta),
+            activeSteeringInterruptsTools: activeSteering.interruptsTools,
+          },
+        }),
     sessions: {
       ...base.sessions,
       supportsModelSwitchInSession: hasModelConfig,
@@ -6217,7 +6232,12 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         yield* Ref.set(activeSessionId, started.sessionId);
         yield* Ref.set(activeSessionSetup, started);
         rememberTerminalEnvironment(started.sessionId, yield* readMcpContext(input.threadId));
-        const capabilities = negotiatedCapabilities(flavor.capabilities, started);
+        const capabilities = negotiatedCapabilities(
+          flavor.capabilities,
+          started,
+          flavor.activeSteering,
+        );
+        const steerDeliveries = new Map<MessageId, "accepted" | "unknown">();
         const canLoadSession = started.initializeResult.agentCapabilities?.loadSession === true;
         const canResumeSession =
           started.initializeResult.agentCapabilities?.sessionCapabilities?.resume != null;
@@ -6772,6 +6792,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const resolvePromptParts = Effect.fnUntraced(function* (
           turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
           sessionId: string,
+          includeInstructions = true,
         ) {
           const prompt: Array<EffectAcpSchema.ContentBlock> = [];
           const instructionState = {
@@ -6784,13 +6805,15 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             attachments: turnInput.message.attachments,
             resolveAttachmentPath: host.resolveAttachmentPath,
           });
-          const text = t3AcpPromptWithInstructions({
-            prompt: messageText,
-            state: instructionState,
-            ...(previousInstructionState === undefined
-              ? {}
-              : { previousState: previousInstructionState }),
-          });
+          const text = includeInstructions
+            ? t3AcpPromptWithInstructions({
+                prompt: messageText,
+                state: instructionState,
+                ...(previousInstructionState === undefined
+                  ? {}
+                  : { previousState: previousInstructionState }),
+              })
+            : messageText;
           if (text.length > 0) {
             prompt.push({ type: "text", text });
           }
@@ -6834,7 +6857,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             });
           }
           // Agents join text blocks before parsing slash-command arguments.
-          if (!messageText.trimStart().startsWith("/")) {
+          if (includeInstructions && !messageText.trimStart().startsWith("/")) {
             prompt.push({
               type: "text",
               text: buildRuntimeInstructions({
@@ -7151,7 +7174,13 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               return;
             }
             const promptGeneration = yield* Ref.get(runtimeCallbackGeneration);
-            yield* runtime.prompt({ prompt: promptParts!.prompt }).pipe(
+            const promptPayload = {
+              prompt: promptParts!.prompt,
+              ...(capabilities.turns.supportsActiveSteering && flavor.activeSteering !== undefined
+                ? { _meta: { "t3code/turnId": providerTurnId } }
+                : {}),
+            };
+            yield* runtime.prompt(promptPayload).pipe(
               Effect.tap(() =>
                 Ref.update(promptInstructionStates, (current) => {
                   if (promptParts?.instructionState === undefined) return current;
@@ -7454,13 +7483,138 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   }),
               }
             : {}),
-          steerTurn: (turnInput) =>
-            Effect.fail(
-              new ProviderAdapter.ProviderAdapterSteerRunUnsupportedError({
+          getSteerDelivery: (messageId) => Effect.sync(() => steerDeliveries.get(messageId)),
+          steerTurn: Effect.fn("AcpAdapterV2.steerTurn")(function* (
+            turnInput: ProviderAdapter.ProviderAdapterV2SteerInput,
+          ) {
+            if (flavor.activeSteering === undefined || !capabilities.turns.supportsActiveSteering) {
+              return yield* new ProviderAdapter.ProviderAdapterSteerRunUnsupportedError({
                 driver,
                 providerThreadId: turnInput.providerThread.id,
-              }),
-            ),
+              });
+            }
+            let requestSent = false;
+            let definitivelyRefused = false;
+            let targetContext: ActiveAcpTurn | undefined;
+            return yield* Effect.gen(function* () {
+              const delivery = steerDeliveries.get(turnInput.message.messageId);
+              if (delivery === "accepted") return;
+              if (delivery === "unknown") {
+                requestSent = true;
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver,
+                  detail: "The previous ACP steering delivery could not be confirmed.",
+                });
+              }
+              const context = yield* Ref.get(activeTurn);
+              if (
+                context === null ||
+                context.providerTurnId !== turnInput.providerTurnId ||
+                context.finalized ||
+                context.interrupted ||
+                context.promptSettled ||
+                (yield* Deferred.isDone(context.promptWireSettled))
+              ) {
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver,
+                  detail: "The ACP turn ended before the steering request was sent.",
+                });
+              }
+              targetContext = context;
+              const sessionId = yield* Ref.get(activeSessionId);
+              if (sessionId === null) {
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver,
+                  detail: "The ACP session is no longer active.",
+                });
+              }
+              const parts = yield* resolvePromptParts(
+                { ...context.input, message: turnInput.message },
+                sessionId,
+                false,
+              );
+              if (
+                (yield* Ref.get(activeTurn)) !== context ||
+                context.interrupted ||
+                context.finalized ||
+                (yield* Deferred.isDone(context.promptWireSettled))
+              ) {
+                return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver,
+                  detail: "The ACP turn ended while preparing the steering input.",
+                });
+              }
+              // The peer checks the logical turn again after any asynchronous
+              // content normalization. Holding a T3 permit cannot make native
+              // queue admission atomic with provider settlement.
+              requestSent = true;
+              const response = yield* runtime
+                .request("_t3/steer", {
+                  sessionId,
+                  turnId: turnInput.providerTurnId,
+                  messageId: turnInput.message.messageId,
+                  prompt: parts.prompt,
+                })
+                .pipe(Effect.flatMap(decodeAcpSteerResponse));
+              if (response.status === "accepted") {
+                steerDeliveries.set(turnInput.message.messageId, "accepted");
+                return;
+              }
+              definitivelyRefused = true;
+              return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+                driver,
+                detail:
+                  response.status === "turn_settled"
+                    ? "The ACP turn settled before steering admission."
+                    : "The ACP agent rejected the steering input.",
+                payload: response,
+              });
+            }).pipe(
+              Effect.onExit((exit) =>
+                Effect.gen(function* () {
+                  if (Exit.isFailure(exit) && requestSent && !definitivelyRefused) {
+                    steerDeliveries.set(turnInput.message.messageId, "unknown");
+                    if (targetContext === undefined) return;
+                    const nativeItemId = `steering-delivery:${turnInput.message.messageId}`;
+                    yield* emitProviderEvent({
+                      type: "turn_item.updated",
+                      driver,
+                      turnItem: {
+                        ...makeProviderFailureTurnItem({
+                          driver,
+                          threadId: turnInput.threadId,
+                          runId: turnInput.runId,
+                          nodeId: targetContext.input.rootNodeId,
+                          providerThreadId: turnInput.providerThread.id,
+                          providerTurnId: turnInput.providerTurnId,
+                          itemOrdinal: yield* resolveItemOrdinal(targetContext, nativeItemId),
+                          occurredAt: yield* DateTime.now,
+                          failure: makeProviderFailure({
+                            class: "transport_error",
+                            message:
+                              "T3 could not confirm steering delivery. The provider may already have accepted this message, so it was not automatically resent.",
+                            retryable: false,
+                          }),
+                        }),
+                        id: providerTurnItemId(nativeItemId),
+                        title: "Steering delivery unconfirmed",
+                      },
+                    });
+                  }
+                }),
+              ),
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapter.ProviderAdapterSteerRunError({
+                    driver,
+                    providerThreadId: turnInput.providerThread.id,
+                    providerTurnId: turnInput.providerTurnId,
+                    deliveryUncertain: requestSent && !definitivelyRefused,
+                    cause,
+                  }),
+              ),
+            );
+          }),
           interruptTurn: Effect.fn("AcpAdapterV2.interruptTurn")(
             function* (turnInput: ProviderAdapter.ProviderAdapterV2InterruptInput) {
               return yield* Effect.uninterruptibleMask((restore) =>
