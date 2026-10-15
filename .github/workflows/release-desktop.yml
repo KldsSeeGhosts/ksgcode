@@ -35,7 +35,7 @@ on:
         required: false
       AZURE_TRUSTED_SIGNING_PUBLISHER_NAME:
         required: false
-      # KSG Code fork: self-signed macOS signing (see FORK.md).
+      # KSG Code fork: self-signed macOS signing (see AGENTS.md, Releases and macOS signing).
       KSG_MACOS_P12:
         required: false
       KSG_MACOS_P12_PASSWORD:
@@ -470,7 +470,7 @@ jobs:
               echo "macOS signing enabled."
               args+=(--signed)
             elif has_all "$KSG_MACOS_P12" "$KSG_MACOS_P12_PASSWORD"; then
-              # KSG Code fork: sign with the self-signed certificate (see FORK.md).
+              # KSG Code fork: sign with the self-signed certificate (see AGENTS.md, Releases and macOS signing).
               keychain="$RUNNER_TEMP/ksg-signing.keychain-db"
               keychain_password="$(openssl rand -hex 16)"
               printf '%s' "$KSG_MACOS_P12" | base64 --decode > "$RUNNER_TEMP/ksg.p12"
