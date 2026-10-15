@@ -28,6 +28,7 @@ export const OMP_PROFILE = {
   driverKind: OMP_PROVIDER,
   displayName: "OMP",
   flavor: {
+    activeSteering: { interruptsTools: true },
     supportsCompaction: true,
     mapElicitationForm: mapOmpElicitationForm,
     // Built-in commands such as /context emit a complete terminal-formatted

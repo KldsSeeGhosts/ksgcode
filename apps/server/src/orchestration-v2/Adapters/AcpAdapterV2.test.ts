@@ -23,6 +23,7 @@ import {
   ProviderInstanceId,
   ProviderSessionId,
   ProviderThreadId,
+  ProviderTurnId,
   RunAttemptId,
   RunId,
   ThreadId,
@@ -611,6 +612,300 @@ function makeTurnInput(input: {
 }
 
 describe("AcpAdapterV2", () => {
+  it.live.each(
+    [
+      { profile: OMP_PROFILE, interruptsTools: true },
+      { profile: ZCODE_PROFILE, interruptsTools: false },
+    ].flatMap((item) => [true, false].map((advertised) => ({ ...item, advertised }))),
+  )(
+    "negotiates $profile.displayName steering (advertised: $advertised)",
+    ({ profile, interruptsTools, advertised }) =>
+      Effect.gen(function* () {
+        const instanceId = ProviderInstanceId.make(`steering-${profile.driverKind}`);
+        const threadId = ThreadId.make(`thread:${instanceId}`);
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const native: { current?: AcpSessionRuntime.AcpSessionRuntime["Service"] } = {};
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            activeSteering: profile.flavor.activeSteering,
+            driver: profile.driverKind,
+            capabilities: AcpProviderCapabilitiesV2,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: yield* (yield* Path.Path).fromFileUrl(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+              environment: advertised ? { T3_ACP_NATIVE_STEERING: "accepted" } : {},
+              protocolEvents,
+              wrapRuntime: (runtime) => {
+                native.current = runtime;
+                return runtime;
+              },
+            }),
+          },
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const modelSelection = { instanceId, model: "default" };
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make(`session:${instanceId}`),
+          modelSelection,
+          runtimePolicy,
+        });
+        assert.equal(runtime.providerSession.capabilities.turns.supportsActiveSteering, advertised);
+        assert.equal(
+          runtime.providerSession.capabilities.turns.activeSteeringInterruptsTools,
+          interruptsTools,
+        );
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const turn = makeTurnInput({
+          threadId,
+          providerThread,
+          instanceId,
+          runtimePolicy,
+          now: yield* DateTime.now,
+        });
+        if (!advertised) {
+          const result = yield* runtime
+            .steerTurn({
+              threadId,
+              runId: turn.runId,
+              providerThread,
+              providerTurnId: ProviderTurnId.make("never-started"),
+              message: turn.message,
+            })
+            .pipe(Effect.result);
+          assert.equal(result._tag, "Failure");
+          if (result._tag === "Failure") {
+            assert.equal(result.failure._tag, "ProviderAdapterSteerRunUnsupportedError");
+          }
+          return;
+        }
+        yield* runtime.startTurn(turn);
+        const ready = Option.getOrThrow(
+          yield* runtime.events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "turn_item.updated" &&
+                event.turnItem.type === "assistant_message" &&
+                event.turnItem.text.includes("ready-for-steering"),
+            ),
+            Stream.runHead,
+          ),
+        );
+        if (
+          ready.type !== "turn_item.updated" ||
+          ready.turnItem.providerTurnId === null ||
+          native.current === undefined
+        )
+          return yield* Effect.die("Missing active ACP turn");
+        const providerTurnId = ready.turnItem.providerTurnId;
+        const steer = {
+          threadId,
+          runId: turn.runId,
+          providerThread,
+          providerTurnId,
+          message: {
+            ...turn.message,
+            messageId: MessageId.make("steer:1"),
+            text: "change direction",
+          },
+        };
+        yield* runtime.steerTurn(steer);
+        yield* runtime.steerTurn(steer);
+        yield* runtime.steerTurn({
+          ...steer,
+          message: { ...steer.message, messageId: MessageId.make("steer:2") },
+        });
+        yield* native.current.request("_test/finish-steering", {});
+        const events = yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        const terminal = events.find((event) => event.type === "turn.terminal");
+        assert.isDefined(terminal);
+        if (terminal?.type !== "turn.terminal") return;
+        assert.equal(terminal.status, "completed");
+        assert.equal(terminal.providerTurnId, providerTurnId);
+        assert.equal(
+          yield* runtime.getSteerDelivery?.(steer.message.messageId) ?? Effect.succeed(undefined),
+          "accepted",
+        );
+        // A successful admission remains a success after the native prompt ended.
+        yield* runtime.steerTurn(steer);
+        const late = yield* runtime
+          .steerTurn({
+            ...steer,
+            message: { ...steer.message, messageId: MessageId.make("steer:too-late") },
+          })
+          .pipe(Effect.result);
+        assert.equal(late._tag, "Failure");
+        if (late._tag === "Failure" && late.failure._tag === "ProviderAdapterSteerRunError") {
+          assert.isFalse(late.failure.deliveryUncertain);
+        }
+        const protocol = yield* Queue.takeAll(protocolEvents);
+        const requests = protocol.filter(
+          (event) => event.direction === "outgoing" && rawProtocolMethod(event) !== undefined,
+        );
+        const steers = requests.filter((event) => rawProtocolMethod(event) === "_t3/steer");
+        assert.equal(steers.length, 2);
+        assert.deepEqual(steers.map(rawProtocolPromptText), [
+          "change direction",
+          "change direction",
+        ]);
+        assert.deepEqual(
+          steers.map((event) => rawProtocolRequestParam(event, "turnId")),
+          [providerTurnId, providerTurnId],
+        );
+        const prompts = requests.filter((event) => rawProtocolMethod(event) === "session/prompt");
+        assert.equal(prompts.length, 1);
+        assert.deepEqual(rawProtocolRequestParam(prompts[0]!, "_meta"), {
+          "t3code/turnId": providerTurnId,
+        });
+        assert.isFalse(requests.some((event) => rawProtocolMethod(event) === "session/cancel"));
+      }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.live.each(["error", "malformed", "rejected", "turn_settled"] as const)(
+    "classifies $0 ACP steering responses without unsafe resends",
+    (outcome) =>
+      Effect.gen(function* () {
+        const instanceId = ProviderInstanceId.make(`steering-${outcome}`);
+        const threadId = ThreadId.make(`thread:${instanceId}`);
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const native: { current?: AcpSessionRuntime.AcpSessionRuntime["Service"] } = {};
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            driver: OMP_PROVIDER,
+            capabilities: AcpProviderCapabilitiesV2,
+            activeSteering: OMP_PROFILE.flavor.activeSteering,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: yield* (yield* Path.Path).fromFileUrl(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+              environment: { T3_ACP_NATIVE_STEERING: outcome },
+              protocolEvents,
+              wrapRuntime: (runtime) => {
+                native.current = runtime;
+                return runtime;
+              },
+            }),
+          },
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const modelSelection = { instanceId, model: "default" };
+        const runtime = yield* adapter.openSession({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+          providerSessionId: ProviderSessionId.make(`session:${instanceId}`),
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const turn = makeTurnInput({
+          threadId,
+          providerThread,
+          instanceId,
+          runtimePolicy,
+          now: yield* DateTime.now,
+        });
+        yield* runtime.startTurn(turn);
+        const ready = Option.getOrThrow(
+          yield* runtime.events.pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "turn_item.updated" &&
+                event.turnItem.type === "assistant_message" &&
+                event.turnItem.text.includes("ready-for-steering"),
+            ),
+            Stream.runHead,
+          ),
+        );
+        if (
+          ready.type !== "turn_item.updated" ||
+          ready.turnItem.providerTurnId === null ||
+          native.current === undefined
+        )
+          return yield* Effect.die("Missing active ACP turn");
+        const steer = {
+          threadId,
+          runId: turn.runId,
+          providerThread,
+          providerTurnId: ready.turnItem.providerTurnId,
+          message: {
+            ...turn.message,
+            messageId: MessageId.make(`steer:${outcome}`),
+            text: "steer",
+          },
+        };
+        const result = yield* runtime.steerTurn(steer).pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        const uncertain = outcome === "error" || outcome === "malformed";
+        if (result._tag === "Failure") {
+          assert.isTrue(result.failure._tag === "ProviderAdapterSteerRunError");
+          if (result.failure._tag === "ProviderAdapterSteerRunError") {
+            assert.equal(result.failure.deliveryUncertain, uncertain);
+            assert.equal(result.failure.deliveryRejected, outcome === "rejected");
+          }
+        }
+        if (uncertain) {
+          yield* runtime.steerTurn(steer).pipe(Effect.result);
+          assert.equal(
+            yield* runtime.getSteerDelivery?.(steer.message.messageId) ?? Effect.succeed(undefined),
+            "unknown",
+          );
+        }
+        yield* native.current.request("_test/finish-steering", {});
+        const events = yield* runtime.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        const deliveryWarnings = events.filter(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "error" &&
+            event.turnItem.title === "Steering delivery unconfirmed",
+        );
+        assert.equal(deliveryWarnings.length, uncertain ? 1 : 0);
+        const refusals = events.filter(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "error" &&
+            event.turnItem.title === "Steering input rejected",
+        );
+        assert.equal(refusals.length, outcome === "rejected" ? 1 : 0);
+        for (const warning of deliveryWarnings) {
+          if (warning.type === "turn_item.updated" && warning.turnItem.type === "error") {
+            assert.isFalse(warning.turnItem.failure.retryable);
+            assert.include(warning.turnItem.failure.message, "not automatically resent");
+          }
+        }
+        const requests = (yield* Queue.takeAll(protocolEvents)).filter(
+          (event) => event.direction === "outgoing" && rawProtocolMethod(event) === "_t3/steer",
+        );
+        assert.equal(requests.length, 1);
+      }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
   it.live.each(["failed", "recovered", "completed", "cancelled"] as const)(
     "projects Mistral retry notices and their %s outcome",
     (outcome) =>
