@@ -160,6 +160,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            .github/scripts
+            apps/desktop/src/updates
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+      - name: Test release notes generator
+        run: node --test .github/scripts/ksg-release-notes.test.cjs
+      - name: Fetch upstream nightly tags
+        run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*:refs/tags/upstream/v*'
+      - name: Generate KSG and upstream release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          UPSTREAM_TAG: ${{ needs.preflight.outputs.upstream_tag }}
+        run: node .github/scripts/ksg-release-notes.cjs "$RUNNER_TEMP/ksg-release-notes.md"
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
@@ -195,4 +214,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "KSG Code $VERSION" \
-            --generate-notes
+            --notes-file "$RUNNER_TEMP/ksg-release-notes.md"

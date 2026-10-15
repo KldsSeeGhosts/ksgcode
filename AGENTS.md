@@ -257,9 +257,11 @@ checks must never replace the KSG installation with an upstream artifact.
 
 - Use descriptive conventional commit and PR titles that name the user-visible
   feature or fix, not generic summaries such as "updates" or "merge changes".
-- The KSG release workflow currently uses GitHub's generated notes, which list
-  merged PRs, not every direct commit or local branch merge. Good commit titles
-  alone do not ensure that a change appears in the published notes.
+- The KSG release workflow generates notes from commits since the previous
+  published KSG release, including direct commits and local branch merges.
+  It separates KSG changes from the newly included upstream nightly's changes.
+  Documentation, test, and formatting-only commits are omitted; rebuilds are
+  identified.
 - Before publishing, review the actual release body for meaningful feature and
   fix bullets. Distinguish KSG changes from newly included upstream changes.
   A compare link alone is not a useful changelog. Do not change published notes
