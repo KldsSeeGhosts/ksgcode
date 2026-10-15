@@ -4,6 +4,7 @@ import {
   ProviderInstanceId,
 } from "@t3tools/contracts";
 import { AcpRegistrySettings } from "../settings.ts";
+import { createModelCapabilities } from "@t3tools/shared/model";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -98,6 +99,63 @@ describe("dedicated ACP agent profiles", () => {
         profile,
       ).message,
     ).toBe("Hermes executable is not available on this environment's PATH.");
+  });
+
+  it("retains custom model names and options through discovery and live refresh", () => {
+    const capabilities = createModelCapabilities({
+      optionDescriptors: [
+        {
+          id: "reasoning_effort",
+          label: "Reasoning",
+          type: "select",
+          options: [{ id: "max", label: "Max" }],
+        },
+      ],
+    });
+    const settings = decodeSettings({
+      source: "local",
+      commandPath: "hermes",
+      customModels: [
+        { slug: "discovered", name: "My discovered model" },
+        { slug: "custom/model", name: "Custom model", capabilities },
+      ],
+    });
+    const configuration = {
+      models: [{ id: "discovered", name: "Agent model", description: null }],
+      currentModelId: "discovered",
+      configOptions: [],
+    };
+    const provider = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      profile,
+      settings,
+      checkedAt: "2026-10-14T10:00:00.000Z",
+      inspection: { status: "ready", agentId: "", version: null, distribution: "local" },
+      probe: {
+        probe: {
+          ...configuration,
+          instanceId: identity.instanceId,
+          ready: true,
+          icon: null,
+          authMethods: [],
+          sessionManagement: noSessionManagement,
+        },
+        slashCommands: [],
+        skills: [],
+      },
+    });
+    const refreshed = applyAcpRegistryLiveConfiguration(
+      provider,
+      configuration,
+      settings.customModels,
+    );
+
+    for (const snapshot of [provider, refreshed]) {
+      expect(snapshot.models).toMatchObject([
+        { slug: "discovered", name: "My discovered model", isDefault: true },
+        { slug: "custom/model", name: "Custom model", isCustom: true, capabilities },
+      ]);
+    }
   });
 });
 

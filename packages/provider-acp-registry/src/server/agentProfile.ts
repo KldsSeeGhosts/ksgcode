@@ -14,7 +14,7 @@ import type {
 import type { AcpAdapterV2Flavor } from "@t3tools/provider-acp/server/adapter";
 import { COMPACT_SLASH_COMMAND } from "@t3tools/provider-core/server/snapshotProbe";
 import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
-import { readCustomModelEntries } from "@t3tools/shared/model";
+import { readCustomModelEntries, toCustomModelSetting } from "@t3tools/shared/model";
 import * as Schema from "effect/Schema";
 
 import { AcpRegistrySettings } from "../settings.ts";
@@ -60,6 +60,6 @@ export function localAcpAgentRegistrySettings(input: {
     enabled: input.enabled,
     commandPath: input.binaryPath,
     commandArgs: [...input.commandArgs, ...tokenizeCliArgs(input.launchArgs)],
-    customModels: readCustomModelEntries(input.customModels).map((entry) => entry.slug),
+    customModels: readCustomModelEntries(input.customModels).map(toCustomModelSetting),
   });
 }
