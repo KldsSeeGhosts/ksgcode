@@ -8,6 +8,7 @@ import {
   invalidateCustomThemes,
   setEnvironmentThemes,
   THEME_COLOR_ROLES,
+  themeAllowsSidebarArtwork,
 } from "../themePalette";
 
 const NIGHTFALL_THEME = {
@@ -23,6 +24,23 @@ afterEach(() => {
 });
 
 describe("environment themes", () => {
+  it("enables Claude artwork only while its reviewed theme is available", () => {
+    expect(themeAllowsSidebarArtwork("claude")).toBe(false);
+
+    setEnvironmentThemes(
+      publishedThemeDefinitions([
+        { ...NIGHTFALL_THEME, id: "claude", name: "Claude" },
+        NIGHTFALL_THEME,
+      ]),
+    );
+
+    expect(themeAllowsSidebarArtwork("claude")).toBe(true);
+    expect(themeAllowsSidebarArtwork("nightfall")).toBe(false);
+
+    setEnvironmentThemes([]);
+    expect(themeAllowsSidebarArtwork("claude")).toBe(false);
+  });
+
   it("generates every role from the two published seeds", () => {
     const theme = environmentThemeDefinition(NIGHTFALL_THEME);
 

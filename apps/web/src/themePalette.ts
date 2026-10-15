@@ -1101,9 +1101,11 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
   );
 }
 
-/** Artwork palettes are reviewed alongside built-ins; user themes always use the pill fallback. */
+/** Only themes with a maintained CSS artwork palette can replace the environment pill. */
 export function themeAllowsSidebarArtwork(theme: ThemePreference): boolean {
   const themeId = themeIdFromPreference(theme);
+  // The fork's published Claude theme keeps its existing palette and preference id.
+  if (themeId === "claude") return getThemeDefinition(theme) !== null;
   return (
     BUILT_IN_THEME_DEFINITIONS.find((definition) => definition.id === themeId)?.sidebarArtwork ===
     true

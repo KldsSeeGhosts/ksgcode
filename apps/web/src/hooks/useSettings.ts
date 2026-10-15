@@ -386,8 +386,8 @@ export function resolveEnvironmentIdentificationMode(input: {
 }): EnvironmentIdentificationMode {
   // Avoid briefly rendering the default artwork before a persisted pill/none choice loads.
   if (!input.settingsHydrated) return "none";
-  // Artwork palettes are maintained for built-ins only. Keep an explicit
-  // "none", but use the theme-aware pill for user-controlled palettes.
+  // Keep an explicit "none", but use the theme-aware pill for palettes without
+  // maintained artwork colors.
   return input.paletteThemeActive && !input.paletteThemeAllowsArtwork && input.mode === "artwork"
     ? "pill"
     : input.mode;

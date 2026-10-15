@@ -852,6 +852,40 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     }
   }
 
+  html[data-theme-id="claude"] {
+    --stage-art-top: #a9654b;
+    --stage-art-mid: #7c4736;
+    --stage-art-bottom: #4c3028;
+    --stage-art-highlight: #f4dfc8;
+    --stage-art-secondary: #d97757;
+    --stage-art-tertiary: #b58a64;
+    --stage-art-line: #faecdc;
+    --stage-night-top: #684736;
+    --stage-night-mid: #49352b;
+    --stage-night-bottom: #2e2520;
+    --stage-night-highlight: #f4dfc8;
+    --stage-night-secondary: #d97757;
+    --stage-night-tertiary: #b58a64;
+    --stage-night-line: #faecdc;
+
+    @variant dark {
+      --stage-art-top: #80503d;
+      --stage-art-mid: #57392e;
+      --stage-art-bottom: #30231e;
+      --stage-art-highlight: #e8c9ad;
+      --stage-art-secondary: #c97556;
+      --stage-art-tertiary: #9d7656;
+      --stage-art-line: #f4dfc8;
+      --stage-night-top: #483024;
+      --stage-night-mid: #342821;
+      --stage-night-bottom: #241f1c;
+      --stage-night-highlight: #e8c9ad;
+      --stage-night-secondary: #c97556;
+      --stage-night-tertiary: #9d7656;
+      --stage-night-line: #f4dfc8;
+    }
+  }
+
   :is(html[data-theme-id="t3-chat"], html[data-theme-id="ocean"], html[data-theme-id="iris"]) {
     --stage-night-top: color-mix(in oklch, var(--stage-art-top) 38%, var(--stage-night-base-top));
     --stage-night-mid: color-mix(in oklch, var(--stage-art-mid) 38%, var(--stage-night-base-mid));
@@ -879,7 +913,8 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     html[data-theme-id="grove"],
     html[data-theme-id="ocean"],
     html[data-theme-id="ember"],
-    html[data-theme-id="iris"]
+    html[data-theme-id="iris"],
+    html[data-theme-id="claude"]
   ) {
     --stage-art-celeste-highlight: var(--stage-art-highlight);
     --stage-art-celeste-secondary: var(--stage-art-secondary);

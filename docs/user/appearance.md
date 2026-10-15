@@ -52,6 +52,11 @@ it. **Duplicate** makes an independent copy you can edit. A saved custom theme w
 takes precedence. If the server stops publishing the selected theme, T3 Code falls back to its
 standard theme.
 
+The Claude environment theme (`claude.json`) supports warm-toned header artwork in light and dark
+mode: stars on Nightly, a blueprint on Dev. In **Settings → Appearance**, set **Environment
+identification** to **Artwork** to show it, **Version pill** for the stage label, or **None** to hide
+both. Other custom themes keep the version pill instead of artwork.
+
 Run this on the server to set a default and switch connected clients to it:
 
 ```bash
