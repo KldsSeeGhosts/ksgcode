@@ -305,13 +305,20 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
                   "start",
                   "This runtime does not support explicit ACP sign-in.",
                 );
-              yield* runtime
-                .authenticate(methodId)
-                .pipe(
-                  Effect.mapError((cause) =>
-                    failure("start", "The ACP agent could not complete sign-in.", cause),
-                  ),
-                );
+              // A self-handled method may have no `authenticate` handler at
+              // all: the agent keeps its own credentials and never asked the
+              // client to do anything. An unimplemented method is that case,
+              // not a failed sign-in — the session start below is the real
+              // proof, so let an absent handler fall through to verification.
+              yield* runtime.authenticate(methodId).pipe(
+                Effect.catchIf(
+                  (error) => error._tag === "AcpRequestError" && error.code === -32601,
+                  () => Effect.void,
+                ),
+                Effect.mapError((cause) =>
+                  failure("start", "The ACP agent could not complete sign-in.", cause),
+                ),
+              );
             }
             // Legacy env_var methods use the secret-backed environment fields in
             // provider settings. Never send their ID to authenticate.

@@ -59,6 +59,7 @@ const makeHarness = (
   failVerification = false,
   settings = decodeSettings({ agentId: "test-agent" }),
   providerInstanceId = instanceId,
+  authenticateError?: AcpRequestError,
 ) =>
   Effect.gen(function* () {
     const verify = yield* Deferred.make<void>();
@@ -109,6 +110,7 @@ const makeHarness = (
             authenticate: (methodId) =>
               Effect.gen(function* () {
                 authenticated.push(methodId);
+                if (authenticateError) return yield* authenticateError;
                 if (elicitation)
                   yield* elicitation(
                     {
@@ -384,5 +386,51 @@ it.effect("refreshes advertised methods after a registry version change without 
     assert.deepEqual(h.authenticated, []);
     assert.deepEqual(h.started, []);
     assert.deepEqual(h.closed, [1, 2]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("signs in when a self-handled method has no ACP authenticate handler", () =>
+  Effect.gen(function* () {
+    // ZCode advertises "ZCode built-in credentials" and keeps the key in its
+    // own config, so its bridge never implements `authenticate`.
+    const h = yield* makeHarness(
+      browserMethod,
+      false,
+      undefined,
+      undefined,
+      new AcpRequestError({
+        method: "authenticate",
+        code: -32601,
+        errorMessage: '"Method not found": authenticate',
+      }),
+    );
+    yield* h.controller.start("owner", Effect.void, "browser");
+    yield* h.phase("verifying");
+    assert.deepEqual(h.authenticated, ["browser"]);
+    yield* Deferred.succeed(h.verify, undefined);
+    yield* h.phase("succeeded");
+    assert.deepEqual(h.started, [2]);
+    assert.deepEqual(h.changed, [true]);
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("keeps failing when the agent rejects an explicit authenticate", () =>
+  Effect.gen(function* () {
+    const h = yield* makeHarness(
+      browserMethod,
+      false,
+      undefined,
+      undefined,
+      new AcpRequestError({
+        method: "authenticate",
+        code: -32000,
+        errorMessage: "Authentication failed",
+      }),
+    );
+    yield* h.controller.start("owner", Effect.void, "browser");
+    yield* h.phase("failed");
+    assert.deepEqual(h.authenticated, ["browser"]);
+    assert.deepEqual(h.started, []);
+    assert.deepEqual(h.changed, []);
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
