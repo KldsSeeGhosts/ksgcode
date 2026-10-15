@@ -111,8 +111,10 @@ stop it and start it again afterwards with your usual options such as `--host`
 or `--tailscale-serve`.
 
 If you run the server with `npx` rather than an installed `t3`, there is
-nothing to update on the host: stop the server and relaunch it as
-`npx t3@<client-version>` with the same subcommand and options.
+nothing to update in place: releases are not published to npm, so
+`npx t3@<client-version>` cannot select this version. Stop the server, install
+that release archive from the fork's releases as your `t3` command, and
+relaunch with your usual subcommand and options.
 
 ## If an update fails
 
