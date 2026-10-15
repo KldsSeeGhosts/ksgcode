@@ -40,6 +40,10 @@ on:
         required: false
       KSG_MACOS_P12_PASSWORD:
         required: false
+      KSG_MACOS_DEVELOPMENT_P12:
+        required: false
+      KSG_MACOS_DEVELOPMENT_P12_PASSWORD:
+        required: false
     inputs:
       label:
         required: true
@@ -431,7 +435,11 @@ jobs:
           AZURE_TRUSTED_SIGNING_PUBLISHER_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_PUBLISHER_NAME }}
           KSG_MACOS_P12: ${{ secrets.KSG_MACOS_P12 }}
           KSG_MACOS_P12_PASSWORD: ${{ secrets.KSG_MACOS_P12_PASSWORD }}
+          KSG_MACOS_DEVELOPMENT_P12: ${{ secrets.KSG_MACOS_DEVELOPMENT_P12 }}
+          KSG_MACOS_DEVELOPMENT_P12_PASSWORD: ${{ secrets.KSG_MACOS_DEVELOPMENT_P12_PASSWORD }}
+          T3CODE_MACOS_SIGNING_IDENTITY: ${{ vars.KSG_MACOS_DEVELOPMENT_IDENTITY }}
         run: |
+          set -euo pipefail
           args=(
             --platform "${{ inputs.platform }}"
             --target "${{ inputs.target }}"
@@ -468,6 +476,34 @@ jobs:
               export T3CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
 
               echo "macOS signing enabled."
+              args+=(--signed)
+            elif [[ -n "$KSG_MACOS_DEVELOPMENT_P12" || -n "$KSG_MACOS_DEVELOPMENT_P12_PASSWORD" ]]; then
+              if ! has_all "$KSG_MACOS_DEVELOPMENT_P12" "$KSG_MACOS_DEVELOPMENT_P12_PASSWORD" "$T3CODE_MACOS_SIGNING_IDENTITY"; then
+                echo "Apple Development signing needs both secrets and KSG_MACOS_DEVELOPMENT_IDENTITY." >&2
+                exit 1
+              fi
+              umask 077
+              keychain="$RUNNER_TEMP/ksg-development-signing.keychain-db"
+              keychain_password="$(openssl rand -hex 16)"
+              echo "::add-mask::$keychain_password"
+              cert_path="$RUNNER_TEMP/ksg-development.p12"
+              trap 'rm -f "$cert_path"' EXIT
+              printf '%s' "$KSG_MACOS_DEVELOPMENT_P12" | base64 --decode > "$cert_path"
+              security create-keychain -p "$keychain_password" "$keychain"
+              security set-keychain-settings -lut 21600 "$keychain"
+              security unlock-keychain -p "$keychain_password" "$keychain"
+              security import "$cert_path" -k "$keychain" -P "$KSG_MACOS_DEVELOPMENT_P12_PASSWORD" -T /usr/bin/codesign
+              security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+              rm "$cert_path"
+              keychains=("$keychain")
+              while IFS= read -r existing_keychain; do
+                keychains+=("$existing_keychain")
+              done < <(security list-keychains -d user | sed 's/^[[:space:]]*"//; s/"$//')
+              security list-keychains -d user -s "${keychains[@]}"
+              # Do not let partial distribution credentials override this isolated keychain.
+              unset CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER
+              export CSC_KEYCHAIN="$keychain" T3CODE_MACOS_DEVELOPMENT=true
+              echo "macOS Apple Development signing enabled (personal fleet, not notarized)."
               args+=(--signed)
             elif has_all "$KSG_MACOS_P12" "$KSG_MACOS_P12_PASSWORD"; then
               # KSG Code fork: sign with the self-signed certificate (see AGENTS.md, Releases and macOS signing).

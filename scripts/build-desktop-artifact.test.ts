@@ -2147,6 +2147,42 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
+  it.effect.each(["T3CODE_MACOS_DEVELOPMENT", "T3CODE_MACOS_SELF_SIGNED"])(
+    "uses the personal signing hook without notarization for %s",
+    (mode) =>
+      Effect.gen(function* () {
+        const config = yield* createBuildConfig(
+          "mac",
+          "dmg",
+          "1.2.3",
+          true,
+          false,
+          undefined,
+          undefined,
+        );
+        const mac = config.mac as Record<string, unknown>;
+        assert.equal(mac.identity, "-");
+        assert.equal(mac.notarize, false);
+        assert.match(String(mac.sign), /[\\/]scripts[\\/]sign-macos\.ts$/);
+        assert.notProperty(mac, "provisioningProfile");
+        assert.notProperty(mac, "entitlements");
+
+        const unsigned = yield* createBuildConfig(
+          "mac",
+          "dmg",
+          "1.2.3",
+          false,
+          false,
+          undefined,
+          undefined,
+        );
+        assert.notProperty(unsigned.mac as Record<string, unknown>, "sign");
+        assert.notProperty(unsigned.mac as Record<string, unknown>, "identity");
+      }).pipe(
+        Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: { [mode]: "true" } }))),
+      ),
+  );
+
   it.effect("uses the nightly DMG background for nightly macOS builds", () =>
     Effect.gen(function* () {
       const config = yield* createBuildConfig(
