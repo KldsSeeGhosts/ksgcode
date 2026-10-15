@@ -7495,6 +7495,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             }
             let requestSent = false;
             let definitivelyRefused = false;
+            let deliveryRejected = false;
             let targetContext: ActiveAcpTurn | undefined;
             return yield* Effect.gen(function* () {
               const delivery = steerDeliveries.get(turnInput.message.messageId);
@@ -7561,6 +7562,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 return;
               }
               definitivelyRefused = true;
+              deliveryRejected = response.status === "rejected";
               return yield* new ProviderAdapter.ProviderAdapterProtocolError({
                 driver,
                 detail:
@@ -7572,8 +7574,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             }).pipe(
               Effect.onExit((exit) =>
                 Effect.gen(function* () {
-                  if (Exit.isFailure(exit) && requestSent && !definitivelyRefused) {
-                    steerDeliveries.set(turnInput.message.messageId, "unknown");
+                  if (
+                    Exit.isFailure(exit) &&
+                    requestSent &&
+                    (!definitivelyRefused || deliveryRejected)
+                  ) {
+                    if (!definitivelyRefused) {
+                      steerDeliveries.set(turnInput.message.messageId, "unknown");
+                    }
                     if (targetContext === undefined) return;
                     const nativeItemId = `steering-delivery:${turnInput.message.messageId}`;
                     yield* emitProviderEvent({
@@ -7590,14 +7598,17 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                           itemOrdinal: yield* resolveItemOrdinal(targetContext, nativeItemId),
                           occurredAt: yield* DateTime.now,
                           failure: makeProviderFailure({
-                            class: "transport_error",
-                            message:
-                              "T3 could not confirm steering delivery. The provider may already have accepted this message, so it was not automatically resent.",
+                            class: deliveryRejected ? "provider_error" : "transport_error",
+                            message: deliveryRejected
+                              ? "The provider rejected this steering input. It was not delivered; send it as a queued message instead."
+                              : "T3 could not confirm steering delivery. The provider may already have accepted this message, so it was not automatically resent.",
                             retryable: false,
                           }),
                         }),
                         id: providerTurnItemId(nativeItemId),
-                        title: "Steering delivery unconfirmed",
+                        title: deliveryRejected
+                          ? "Steering input rejected"
+                          : "Steering delivery unconfirmed",
                       },
                     });
                   }
@@ -7610,6 +7621,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                     providerThreadId: turnInput.providerThread.id,
                     providerTurnId: turnInput.providerTurnId,
                     deliveryUncertain: requestSent && !definitivelyRefused,
+                    deliveryRejected,
                     cause,
                   }),
               ),

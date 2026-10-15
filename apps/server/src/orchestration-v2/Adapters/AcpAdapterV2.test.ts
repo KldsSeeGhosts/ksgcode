@@ -865,6 +865,7 @@ describe("AcpAdapterV2", () => {
           assert.isTrue(result.failure._tag === "ProviderAdapterSteerRunError");
           if (result.failure._tag === "ProviderAdapterSteerRunError") {
             assert.equal(result.failure.deliveryUncertain, uncertain);
+            assert.equal(result.failure.deliveryRejected, outcome === "rejected");
           }
         }
         if (uncertain) {
@@ -886,6 +887,13 @@ describe("AcpAdapterV2", () => {
             event.turnItem.title === "Steering delivery unconfirmed",
         );
         assert.equal(deliveryWarnings.length, uncertain ? 1 : 0);
+        const refusals = events.filter(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "error" &&
+            event.turnItem.title === "Steering input rejected",
+        );
+        assert.equal(refusals.length, outcome === "rejected" ? 1 : 0);
         for (const warning of deliveryWarnings) {
           if (warning.type === "turn_item.updated" && warning.turnItem.type === "error") {
             assert.isFalse(warning.turnItem.failure.retryable);

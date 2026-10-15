@@ -404,13 +404,17 @@ export const layer: Layer.Layer<
                   );
                   const deliveryUncertain =
                     isProviderAdapterSteerRunError(cause) && cause.deliveryUncertain === true;
+                  const deliveryRejected =
+                    isProviderAdapterSteerRunError(cause) && cause.deliveryRejected === true;
                   return yield* new ProviderTurnControlError({
                     threadId: input.threadId,
                     operation: "steer",
                     providerTurnId: input.providerTurnId,
                     turnCompleted:
-                      !deliveryUncertain && current.providerTurn?.status === "completed",
-                    ...(deliveryUncertain ? { retryable: false } : {}),
+                      !deliveryUncertain &&
+                      !deliveryRejected &&
+                      current.providerTurn?.status === "completed",
+                    ...(deliveryUncertain || deliveryRejected ? { retryable: false } : {}),
                     cause,
                   });
                 }),

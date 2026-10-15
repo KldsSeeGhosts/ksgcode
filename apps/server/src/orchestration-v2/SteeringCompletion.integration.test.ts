@@ -44,6 +44,8 @@ it.effect.each(
           "during delivery",
           "with uncertain delivery",
           "with uncertain active delivery",
+          "with rejected delivery",
+          "with rejected active delivery",
           "before dispatch",
           "after delivery",
           "without native steering",
@@ -166,6 +168,15 @@ it.effect.each(
                       cause: "admission response lost while provider is still running",
                     });
                   }
+                  if (timing === "with rejected active delivery") {
+                    return yield* new ProviderAdapter.ProviderAdapterSteerRunError({
+                      driver,
+                      providerThreadId: turn.providerThread.id,
+                      providerTurnId: turn.providerTurnId,
+                      deliveryRejected: true,
+                      cause: "unsupported steering content",
+                    });
+                  }
                   yield* Deferred.succeed(steerEntered, undefined);
                   yield* Deferred.await(rejectSteer);
                   if (timing === "with uncertain delivery") {
@@ -176,6 +187,7 @@ it.effect.each(
                     providerThreadId: turn.providerThread.id,
                     providerTurnId: turn.providerTurnId,
                     ...(timing === "with uncertain delivery" ? { deliveryUncertain: true } : {}),
+                    ...(timing === "with rejected delivery" ? { deliveryRejected: true } : {}),
                     cause: "turn already completed",
                   });
                 }),
@@ -319,9 +331,15 @@ it.effect.each(
         });
         if (timing !== "before dispatch") yield* dispatchSteer;
         if (timing === "after delivery") yield* worker.drain();
-        if (timing === "with uncertain active delivery") yield* worker.drain();
+        if (
+          timing === "with uncertain active delivery" ||
+          timing === "with rejected active delivery"
+        )
+          yield* worker.drain();
         const delivery =
-          timing === "during delivery" || timing === "with uncertain delivery"
+          timing === "during delivery" ||
+          timing === "with uncertain delivery" ||
+          timing === "with rejected delivery"
             ? yield* worker.runOnce.pipe(Effect.forkScoped)
             : null;
         if (delivery !== null) yield* Deferred.await(steerEntered);
@@ -380,12 +398,19 @@ it.effect.each(
             ),
           ),
         );
-        if (timing === "with uncertain delivery" || timing === "with uncertain active delivery") {
-          const replay = yield* replaySteer.pipe(Effect.result);
-          assert.equal(replay._tag, "Failure");
-          if (replay._tag === "Failure") {
-            assert.isFalse(replay.failure.retryable);
-            assert.notEqual(replay.failure.turnCompleted, true);
+        if (
+          timing === "with uncertain delivery" ||
+          timing === "with uncertain active delivery" ||
+          timing === "with rejected delivery" ||
+          timing === "with rejected active delivery"
+        ) {
+          if (timing === "with uncertain delivery" || timing === "with uncertain active delivery") {
+            const replay = yield* replaySteer.pipe(Effect.result);
+            assert.equal(replay._tag, "Failure");
+            if (replay._tag === "Failure") {
+              assert.isFalse(replay.failure.retryable);
+              assert.notEqual(replay.failure.turnCompleted, true);
+            }
           }
           assert.equal(steerCalls, 1);
           assert.equal(started.length, 1);

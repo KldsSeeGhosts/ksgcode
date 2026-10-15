@@ -301,6 +301,8 @@ export class ProviderAdapterSteerRunError extends Schema.TaggedError<ProviderAda
     providerTurnId: ProviderTurnId,
     /** The provider may have admitted this input. Never resend it as a follow-up. */
     deliveryUncertain: Schema.optional(Schema.Boolean),
+    /** A definitive content refusal, not a completed-turn race to retry. */
+    deliveryRejected: Schema.optional(Schema.Boolean),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
