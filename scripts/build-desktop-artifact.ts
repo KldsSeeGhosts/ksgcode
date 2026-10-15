@@ -2748,10 +2748,15 @@ export function resolveDesktopProductName(_version: string): string {
   return "KSG Code";
 }
 
-// KSG Code fork: with --signed, sign macOS builds with the self-signed
-// certificate in CSC_KEYCHAIN instead of a Developer ID (see FORK.md).
+// Personal builds use an external keychain without distribution provisioning (see FORK.md).
 const MacSelfSignedConfig = Config.Boolean("T3CODE_MACOS_SELF_SIGNED").pipe(
   Config.withDefault(false),
+);
+const MacDevelopmentConfig = Config.Boolean("T3CODE_MACOS_DEVELOPMENT").pipe(
+  Config.withDefault(false),
+);
+const MacPersonalSigningConfig = Config.all([MacSelfSignedConfig, MacDevelopmentConfig]).pipe(
+  Config.map(([selfSigned, development]) => selfSigned || development),
 );
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
@@ -2857,9 +2862,8 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
-      // "-" gets past electron-builder's lookup, which only accepts trusted
-      // identities; sign-macos.ts swaps in the certificate from CSC_KEYCHAIN.
-      ...(signed && (yield* MacSelfSignedConfig) ? { identity: "-", notarize: false } : {}),
+      // The hook selects the pinned identity instead of distribution-only discovery.
+      ...(signed && (yield* MacPersonalSigningConfig) ? { identity: "-", notarize: false } : {}),
       ...(macPasskeySigning
         ? {
             entitlements: macPasskeySigning.entitlementsPath,
@@ -3806,9 +3810,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stageProdResourcesDir = path.join(stageAppDir, "apps/desktop/prod-resources");
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
 
-  const macSelfSigned = options.platform === "mac" && (yield* MacSelfSignedConfig);
+  const macPersonalSigning = options.platform === "mac" && (yield* MacPersonalSigningConfig);
   const configuredMacPasskeySigning =
-    options.platform === "mac" && options.signed && !macSelfSigned
+    options.platform === "mac" && options.signed && !macPersonalSigning
       ? yield* Effect.try({
           try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
@@ -3990,8 +3994,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     // takes seconds on a many-core runner instead of about two minutes.
     buildEnv.XZ_DEFAULTS = "-T0";
   }
-  if (options.signed && macSelfSigned) {
-    buildEnv.T3CODE_MACOS_SELF_SIGNED = "true";
+  if (options.signed && macPersonalSigning) {
+    buildEnv.T3CODE_MACOS_SELF_SIGNED = String(yield* MacSelfSignedConfig);
+    buildEnv.T3CODE_MACOS_DEVELOPMENT = String(yield* MacDevelopmentConfig);
   }
   if (!options.signed) {
     buildEnv.CSC_IDENTITY_AUTO_DISCOVERY = "false";

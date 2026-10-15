@@ -75,24 +75,40 @@ and Linux x64 using upstream's reusable desktop workflow.
 
 - Keep `KSG Release` and `Release desktop build` enabled in Actions. Other
   upstream workflows need upstream's runners and secrets and should stay disabled.
-- Secrets `KSG_MACOS_P12` and `KSG_MACOS_P12_PASSWORD` must contain the existing
-  signing identity. Never regenerate it for an ordinary release: installed apps
-  reject an update signed by a different certificate.
+- Personal macOS releases use `KSG_MACOS_DEVELOPMENT_P12` and
+  `KSG_MACOS_DEVELOPMENT_P12_PASSWORD`, with the certificate SHA-1 pinned by the
+  `KSG_MACOS_DEVELOPMENT_IDENTITY` repository variable. This reuses the existing
+  Noches Apple Development identity, team `78295MJ4K8`, without changing Noches.
+  The current certificate expires September 28, 2027. Renew it before expiry
+  using the same Apple team and verify update compatibility before publishing.
+- The old `KSG_MACOS_P12` and `KSG_MACOS_P12_PASSWORD` remain a self-signed
+  fallback only when development secrets are absent. Incomplete or invalid
+  development signing fails the build instead of silently changing identity.
+  Complete Developer ID and notarization credentials still take precedence.
 - Keep certificates, private keys, `.p12` files, and signing keychains outside
   this repository. For a local build, prepare an external keychain with the
-  existing identity, set `T3CODE_MACOS_SELF_SIGNED=true` and `CSC_KEYCHAIN`,
+  existing identity, set `T3CODE_MACOS_DEVELOPMENT=true`, `CSC_KEYCHAIN`, and
+  `T3CODE_MACOS_SIGNING_IDENTITY` to the certificate SHA-1,
   and run `node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 --signed`.
-  Do not set `CSC_LINK` for this self-signed path.
+  Do not set `CSC_LINK` for this path. Legacy self-signed builds use
+  `T3CODE_MACOS_SELF_SIGNED=true` instead.
 - Optional `KSG_RELAY_URL` and `KSG_CLERK_*` repository variables enable T3
   Connect. Without them, it is omitted.
 - If pushing workflows is denied, stop and ask the user to authorize the
   required GitHub workflow permission. Do not change authentication yourself.
 
-Self-signed builds skip notarization and team-dependent passkey entitlements.
-The first launch may require Finder's Open command. Later KSG updates must
-satisfy the installed app's designated requirement, which pins the certificate.
-Moving from Apple's upstream signing identity to KSG requires a manual
-reinstall and may require privacy permissions and Keychain access again.
+Personal builds skip notarization and team-dependent passkey entitlements.
+They are not notarized public distribution; CLI archives remain ad hoc unless
+separate Developer ID credentials are configured. The first launch may require
+Finder's Open command.
+
+Switching an installed self-signed KSG app to Apple Development requires one
+manual reinstall, since the old updater pins the self-signed certificate.
+Expect one final Keychain approval and possibly renewed privacy permissions.
+Thereafter Apple-signed builds use a stable team partition rather than a
+changing build hash for Keychain access. Confirm real Electron safeStorage and
+the production updater after the manual cutover. Never replace or restart the
+live app during a release-configuration change.
 
 ## Server cutover and launcher compatibility
 
