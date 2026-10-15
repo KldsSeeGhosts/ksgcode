@@ -564,6 +564,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     releaseChannelOnly: true,
   },
   {
+    id: "upstream-nightly",
+    title: "Upstream T3 Code nightly",
+    to: "/settings/general",
+    searchTerms: ["ksg fork merge sync upstream nightly check updates review changes"],
+  },
+  {
     id: "cli-command",
     title: "t3 command",
     to: "/settings/general",

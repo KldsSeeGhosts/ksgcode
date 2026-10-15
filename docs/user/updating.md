@@ -15,8 +15,9 @@ background service stays on its current release channel. A remote desktop app
 installs the latest release from its own channel. Hover the button to see what
 it will update.
 
-Server updates appear only after that version is published to npm. Remote
-desktop apps do not wait for npm. The confirmation lists each machine it skips
+In KSG Code, server updates appear after that version is published to the
+fork's GitHub releases. Remote desktop apps follow their own release feed.
+The confirmation lists each machine it skips
 and why, such as a machine that is offline or needs a manual update. Use the
 notice or **Settings → Connections** for those.
 
@@ -27,6 +28,21 @@ device asks. Use the update button on that machine to retry.
 The confirmation counts the running threads that the restarts will interrupt,
 and how many can resume afterwards. See **Continue threads after restarts**
 below.
+
+## Check upstream T3 Code nightlies
+
+In KSG Code, open **Settings → General → About → Upstream T3 Code nightly**
+to compare the included upstream nightly with the newest published one.
+It checks when opened and hourly while the page stays open; use **Check upstream**
+to refresh sooner. **Review changes** opens the exact upstream comparison, and
+**Copy merge prompt** prepares a request you can give an agent.
+
+This checks for changes to merge, not an app update to install. Fork-only
+rebuilds do not mark upstream changes as merged. After those changes are merged
+and released as a new KSG build, install that build with the sidebar updater.
+The included baseline then advances, so the next nightly is detected even if
+it arrives on the same day. Development builds without a recorded baseline
+show it as unknown.
 
 ## Before you update
 

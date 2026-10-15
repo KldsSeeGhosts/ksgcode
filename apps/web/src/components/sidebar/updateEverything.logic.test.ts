@@ -45,6 +45,26 @@ function machine(
 }
 
 describe("collectServerUpdateTargets", () => {
+  it("updates connected KSG desktops and services to the new fork release", () => {
+    const current = "0.0.46-nightly.20261014.311802";
+    const target = "0.0.46-nightly.20261014.313201";
+    const { targets, skipped } = collectServerUpdateTargets(
+      [
+        machine("Mac Studio", current, "desktop-managed", { hostedByThisApp: true }),
+        machine("MacBook Air", current, "desktop-managed"),
+        machine("kidsseeghosts", current, "boot-service"),
+        machine("serverseesghosts", current, "boot-service"),
+      ],
+      target,
+    );
+    expect(targets.map(({ serverLabel, targetVersion }) => [serverLabel, targetVersion])).toEqual([
+      ["MacBook Air", target],
+      ["kidsseeghosts", target],
+      ["serverseesghosts", target],
+    ]);
+    expect(skipped).toEqual([]);
+  });
+
   it("updates remote servers that can move to the target and names every skipped one", () => {
     const { targets, skipped } = collectServerUpdateTargets(
       [

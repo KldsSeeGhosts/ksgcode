@@ -1,6 +1,21 @@
 # T3 Code
 
-> This checkout is the KSG Code fork. Read [FORK.md](FORK.md) first: it lists the fork's patches and how to sync with upstream.
+## KSG fork rules
+
+- `upstream` is an untouched mirror of a published upstream nightly. Never edit
+  or commit there. Work on `ksg/dev` or a short-lived branch from it, using the
+  branch's existing worktree; preserve unrelated edits.
+- Sync only published `pingdotgg/t3code` nightlies, not upstream `main` or this
+  fork's releases. Fetch upstream tags into `refs/tags/upstream/*`. Never select
+  from the mixed `v*-nightly.*` tag namespace or use GitHub's "Sync fork".
+- Merge forward through `upstream`, `ksg/passthrough`, then `ksg/dev`. Preserve
+  the fork's update feed, branding, signing, version scheme, and customizations.
+  Resolve conflicts by preserving their intent, then run focused checks.
+- Upstream checks compare the exact included upstream nightly, not KSG's larger
+  encoded run number or the calendar date. Keep fleet installs separate from
+  upstream review and merging.
+- Read [FORK.md](FORK.md) for sync, release, signing, and cutover procedures.
+  Do not push, publish, or update running devices unless requested.
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 

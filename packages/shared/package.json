@@ -407,6 +407,10 @@
       "types": "./src/cliRelease.ts",
       "import": "./src/cliRelease.ts"
     },
+    "./forkUpstream": {
+      "types": "./src/forkUpstream.ts",
+      "import": "./src/forkUpstream.ts"
+    },
     "./gitPatchPath": {
       "types": "./src/gitPatchPath.ts",
       "import": "./src/gitPatchPath.ts"

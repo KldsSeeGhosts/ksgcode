@@ -26,6 +26,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      upstream_tag: ${{ steps.version.outputs.upstream_tag }}
       ref: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v6
@@ -67,6 +68,7 @@ jobs:
           echo "Upstream $upstream -> KSG $version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "upstream_tag=v$upstream" >> "$GITHUB_OUTPUT"
 
   build_bundle:
     name: Build JS bundle
@@ -74,6 +76,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
+      VITE_KSG_UPSTREAM_TAG: ${{ needs.preflight.outputs.upstream_tag }}
       T3CODE_CLERK_PUBLISHABLE_KEY: ${{ vars.KSG_CLERK_PUBLISHABLE_KEY }}
       T3CODE_CLERK_JWT_TEMPLATE: ${{ vars.KSG_CLERK_JWT_TEMPLATE }}
       T3CODE_CLERK_CLI_OAUTH_CLIENT_ID: ${{ vars.KSG_CLERK_CLI_OAUTH_CLIENT_ID }}

@@ -1,4 +1,5 @@
 import { SettingsGroup } from "./SettingsGroup";
+import { UpstreamNightlySettings } from "./UpstreamNightlySettings";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
 import { NotificationSettings } from "./NotificationSettings";
@@ -3359,6 +3360,7 @@ export function GeneralSettingsPanel() {
             {IS_NIGHTLY_BUILD ? <NightlyMobileBetaRow /> : null}
           </>
         )}
+        <UpstreamNightlySettings />
         <SettingsRow
           {...searchableSetting("privacy-policy")}
           description="How we handle your data, including the anonymous usage data T3 Code collects."

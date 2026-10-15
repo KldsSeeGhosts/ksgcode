@@ -14,6 +14,7 @@ interface ImportMetaEnv {
   readonly VITE_RELAY_OTLP_TRACES_DATASET: string;
   readonly VITE_RELAY_OTLP_TRACES_TOKEN: string;
   readonly APP_VERSION: string;
+  readonly VITE_KSG_UPSTREAM_TAG?: string;
 }
 
 interface ImportMeta {

@@ -151,6 +151,8 @@ describe("searchSettings", () => {
       to: "/settings/general",
       releaseChannelOnly: true,
     });
+    expect(searchSettings("upstream nightly").map((item) => item.id)).toContain("upstream-nightly");
+    expect(searchSettings("fork merge").map((item) => item.id)).toContain("upstream-nightly");
   });
 
   it("hides macOS-only settings on other platforms", () => {
