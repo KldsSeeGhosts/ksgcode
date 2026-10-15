@@ -96,6 +96,9 @@ describe("published upstream nightlies", () => {
       "published upstream nightly v0.0.46-nightly.20261014.3132 from pingdotgg/t3code",
     );
     expect(upstreamMergePrompt("0.0.46-nightly.20261014.3132")).toContain(
+      "Follow the KSG fork rules and upstream sync procedure in AGENTS.md.",
+    );
+    expect(upstreamMergePrompt("0.0.46-nightly.20261014.3132")).toContain(
       "Do not push, publish, install updates, or restart devices without my approval.",
     );
   });

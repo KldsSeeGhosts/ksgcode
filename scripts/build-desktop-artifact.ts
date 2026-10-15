@@ -2743,12 +2743,13 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
-// KSG Code fork: one product name for every channel (see FORK.md).
+// KSG Code fork: one product name for every channel (see AGENTS.md, KSG fork procedures).
 export function resolveDesktopProductName(_version: string): string {
   return "KSG Code";
 }
 
-// Personal builds use an external keychain without distribution provisioning (see FORK.md).
+// Personal builds use an external keychain without distribution provisioning
+// (see AGENTS.md, Releases and macOS signing).
 const MacSelfSignedConfig = Config.Boolean("T3CODE_MACOS_SELF_SIGNED").pipe(
   Config.withDefault(false),
 );

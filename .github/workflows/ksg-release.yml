@@ -1,6 +1,6 @@
 name: KSG Release
 
-# KSG Code fork (see FORK.md): publishes a nightly release of ksg/dev for
+# KSG Code fork (see AGENTS.md): publishes a nightly release of ksg/dev for
 # macOS arm64 and Linux x64. Each platform build reuses upstream's
 # release-desktop.yml, so build changes arrive with each upstream sync.
 
@@ -32,14 +32,14 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          sparse-checkout: FORK.md
+          sparse-checkout: AGENTS.md
 
       # Upstream tags go under upstream/ so the fork's own release tags,
       # which share the v*-nightly.* shape, never match.
       - name: Fetch upstream nightly tags
         run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*:refs/tags/upstream/v*'
 
-      # N = upstream run number * 100 + fork counter (see FORK.md, Versions).
+      # N = upstream run number * 100 + fork counter (see AGENTS.md, Versions and update feeds).
       - id: version
         name: Resolve fork version
         env:
@@ -160,6 +160,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            .github/scripts
+            apps/desktop/src/updates
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+      - name: Test release notes generator
+        run: node --test .github/scripts/ksg-release-notes.test.cjs
+      - name: Fetch upstream nightly tags
+        run: git fetch --no-tags https://github.com/pingdotgg/t3code.git 'refs/tags/v*:refs/tags/upstream/v*'
+      - name: Generate KSG and upstream release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.preflight.outputs.tag }}
+          UPSTREAM_TAG: ${{ needs.preflight.outputs.upstream_tag }}
+        run: node .github/scripts/ksg-release-notes.cjs "$RUNNER_TEMP/ksg-release-notes.md"
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
@@ -195,4 +214,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --prerelease \
             --title "KSG Code $VERSION" \
-            --generate-notes
+            --notes-file "$RUNNER_TEMP/ksg-release-notes.md"
