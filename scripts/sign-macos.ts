@@ -28,7 +28,6 @@ export async function resolveSelfSignedIdentity(keychain: string | undefined): P
   return hash;
 }
 
-/** Sign files with matching options together instead of spawning codesign for each file. */
 export default async function sign(options: SignOptions): Promise<void> {
   const selfSigned = process.env.T3CODE_MACOS_SELF_SIGNED === "true";
   await signApplication({
