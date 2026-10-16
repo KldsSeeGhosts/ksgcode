@@ -5,6 +5,9 @@ appearance or stay in light or dark mode. To use different themes for light and 
 the corresponding preview within each theme. Appearance preferences are saved separately on each
 device or browser.
 
+KSG Code includes Claude and Cursor themes in light and dark mode. They are available on every
+installation without importing or publishing theme files.
+
 On web and desktop, use **Change theme** in the command palette to select a theme without leaving chat.
 Press **Cmd+Option+A** on macOS or **Ctrl+Alt+A** on Windows/Linux to open the theme picker directly.
 Use **Change appearance** in the command palette to choose System, Light, or Dark independently of
@@ -52,7 +55,7 @@ it. **Duplicate** makes an independent copy you can edit. A saved custom theme w
 takes precedence. If the server stops publishing the selected theme, T3 Code falls back to its
 standard theme.
 
-The Claude (`claude.json`) and Cursor (`cursor.json`) environment themes support header artwork in
+The built-in Claude and Cursor themes support header artwork in
 light and dark mode: stars on Nightly, a blueprint on Dev. In **Settings → Appearance**, set
 **Environment identification** to **Artwork** to show it, **Version pill** for the stage label, or
 **None** to hide both. Other custom themes keep the version pill instead of artwork.

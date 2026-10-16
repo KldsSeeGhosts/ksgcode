@@ -161,6 +161,8 @@ it.layer(NodeServices.layer)("environment theme", (it) => {
         "no-colors.json": '{ "name": "Empty", "appearance": "dark" }',
         "Bad Name.json": encodeThemeFile(SHARED_THEME),
         "ocean.json": encodeThemeFile(SHARED_THEME),
+        "claude.json": encodeThemeFile(SHARED_THEME),
+        "cursor.json": encodeThemeFile(SHARED_THEME),
         "dark.json": encodeThemeFile(SHARED_THEME),
         "notes.txt": "not a theme",
       },

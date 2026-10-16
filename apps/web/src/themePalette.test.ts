@@ -82,6 +82,23 @@ function contrastRatio(first: string, second: string): number {
 }
 
 describe("theme files", () => {
+  it.each([
+    ["claude", "Claude", "#faf9f5", "#262624"],
+    ["cursor", "Cursor", "#fcfcfc", "#181818"],
+  ])(
+    "resolves bundled %s light and dark palettes without an imported theme",
+    (id, label, light, dark) => {
+      const theme = getThemeDefinition(id)!;
+      expect(theme.label).toBe(label);
+      expect(canonicalThemePreference(id)).toBe(id);
+      expect(isKnownThemePreference(id)).toBe(true);
+      expect(getThemeModes(theme)).toEqual(["light", "dark"]);
+      expect(asHex(getThemeColorsForMode(theme, "light")!.canvas)).toBe(light);
+      expect(asHex(getThemeColorsForMode(theme, "dark")!.canvas)).toBe(dark);
+      expect(themeAllowsSidebarArtwork(id)).toBe(true);
+    },
+  );
+
   it("keeps every built-in palette value in canonical OKLCH form", () => {
     for (const theme of BUILT_IN_THEMES) {
       for (const colors of [theme.colors, ...Object.values(theme.variants ?? {})]) {

@@ -24,9 +24,13 @@ afterEach(() => {
 });
 
 describe("environment themes", () => {
-  it("enables Claude and Cursor artwork only while their reviewed themes are available", () => {
-    expect(themeAllowsSidebarArtwork("claude")).toBe(false);
-    expect(themeAllowsSidebarArtwork("cursor")).toBe(false);
+  it("keeps bundled Claude and Cursor palettes and artwork independent of environment themes", () => {
+    const claude = getThemeDefinition("claude");
+    const cursor = getThemeDefinition("cursor");
+    expect(claude?.label).toBe("Claude");
+    expect(cursor?.label).toBe("Cursor");
+    expect(themeAllowsSidebarArtwork("claude")).toBe(true);
+    expect(themeAllowsSidebarArtwork("cursor")).toBe(true);
 
     setEnvironmentThemes(
       publishedThemeDefinitions([
@@ -39,10 +43,20 @@ describe("environment themes", () => {
     expect(themeAllowsSidebarArtwork("claude")).toBe(true);
     expect(themeAllowsSidebarArtwork("cursor")).toBe(true);
     expect(themeAllowsSidebarArtwork("nightfall")).toBe(false);
+    expect(getThemeDefinition("claude")).toBe(claude);
+    expect(getThemeDefinition("cursor")).toBe(cursor);
+    expect(
+      publishedThemeDefinitions([
+        { ...NIGHTFALL_THEME, id: "claude", name: "Claude" },
+        { ...NIGHTFALL_THEME, id: "cursor", name: "Cursor" },
+      ]),
+    ).toEqual([]);
 
     setEnvironmentThemes([]);
-    expect(themeAllowsSidebarArtwork("claude")).toBe(false);
-    expect(themeAllowsSidebarArtwork("cursor")).toBe(false);
+    expect(getThemeDefinition("claude")).toBe(claude);
+    expect(getThemeDefinition("cursor")).toBe(cursor);
+    expect(themeAllowsSidebarArtwork("claude")).toBe(true);
+    expect(themeAllowsSidebarArtwork("cursor")).toBe(true);
   });
 
   it("generates every role from the two published seeds", () => {

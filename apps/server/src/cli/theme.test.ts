@@ -48,6 +48,17 @@ const writeSettings = (baseDir: string, settings: Record<string, unknown>) => {
 };
 
 describe("t3 theme", () => {
+  it.effect("sets bundled Claude and Cursor defaults without publishing theme files", () =>
+    Effect.gen(function* () {
+      const baseDir = makeBaseDir();
+      for (const themeId of ["claude", "cursor"]) {
+        yield* runCli(["theme", "set", themeId, "--base-dir", baseDir]);
+        assert.equal(readSettings(baseDir).defaultTheme, themeId);
+      }
+      assert.equal(NodeFS.existsSync(NodePath.join(baseDir, "userdata", "themes")), false);
+    }),
+  );
+
   it.effect("writes a default theme when no settings file exists yet", () =>
     Effect.gen(function* () {
       const baseDir = makeBaseDir();
