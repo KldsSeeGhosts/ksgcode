@@ -24,21 +24,25 @@ afterEach(() => {
 });
 
 describe("environment themes", () => {
-  it("enables Claude artwork only while its reviewed theme is available", () => {
+  it("enables Claude and Cursor artwork only while their reviewed themes are available", () => {
     expect(themeAllowsSidebarArtwork("claude")).toBe(false);
+    expect(themeAllowsSidebarArtwork("cursor")).toBe(false);
 
     setEnvironmentThemes(
       publishedThemeDefinitions([
         { ...NIGHTFALL_THEME, id: "claude", name: "Claude" },
+        { ...NIGHTFALL_THEME, id: "cursor", name: "Cursor" },
         NIGHTFALL_THEME,
       ]),
     );
 
     expect(themeAllowsSidebarArtwork("claude")).toBe(true);
+    expect(themeAllowsSidebarArtwork("cursor")).toBe(true);
     expect(themeAllowsSidebarArtwork("nightfall")).toBe(false);
 
     setEnvironmentThemes([]);
     expect(themeAllowsSidebarArtwork("claude")).toBe(false);
+    expect(themeAllowsSidebarArtwork("cursor")).toBe(false);
   });
 
   it("generates every role from the two published seeds", () => {
