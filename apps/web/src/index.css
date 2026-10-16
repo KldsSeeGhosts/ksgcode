@@ -887,36 +887,36 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 
   html[data-theme-id="cursor"] {
-    --stage-art-top: #434c5e;
-    --stage-art-mid: #2e3440;
-    --stage-art-bottom: #1e222a;
+    --stage-art-top: #4c566a;
+    --stage-art-mid: #3b4252;
+    --stage-art-bottom: #242933;
     --stage-art-highlight: #eceff4;
     --stage-art-secondary: #81a1c1;
-    --stage-art-tertiary: #d08770;
-    --stage-art-line: #f0f4f8;
-    --stage-night-top: #2e3440;
-    --stage-night-mid: #232731;
-    --stage-night-bottom: #181a20;
-    --stage-night-highlight: #eceff4;
-    --stage-night-secondary: #81a1c1;
-    --stage-night-tertiary: #d08770;
-    --stage-night-line: #f0f4f8;
+    --stage-art-tertiary: #88c0d0;
+    --stage-art-line: #f4f7fb;
+    --stage-night-top: #3b4758;
+    --stage-night-mid: #2a3340;
+    --stage-night-bottom: #1b2028;
+    --stage-night-highlight: #e5eef9;
+    --stage-night-secondary: #6fa3dc;
+    --stage-night-tertiary: #81a1c1;
+    --stage-night-line: #f4f8fd;
 
     @variant dark {
-      --stage-art-top: #323846;
-      --stage-art-mid: #232731;
-      --stage-art-bottom: #16181d;
+      --stage-art-top: #3b4252;
+      --stage-art-mid: #2b303c;
+      --stage-art-bottom: #1b1e26;
       --stage-art-highlight: #d8dee9;
-      --stage-art-secondary: #81a1c1;
-      --stage-art-tertiary: #c08b65;
-      --stage-art-line: #e5e9f0;
-      --stage-night-top: #242830;
-      --stage-night-mid: #1b1e24;
-      --stage-night-bottom: #141414;
-      --stage-night-highlight: #d8dee9;
-      --stage-night-secondary: #81a1c1;
-      --stage-night-tertiary: #c08b65;
-      --stage-night-line: #e5e9f0;
+      --stage-art-secondary: #6fa3dc;
+      --stage-art-tertiary: #81a1c1;
+      --stage-art-line: #ecf2f9;
+      --stage-night-top: #2f3a4a;
+      --stage-night-mid: #222934;
+      --stage-night-bottom: #171b22;
+      --stage-night-highlight: #dce8f7;
+      --stage-night-secondary: #599ce7;
+      --stage-night-tertiary: #81a1c1;
+      --stage-night-line: #f0f5fc;
     }
   }
 
