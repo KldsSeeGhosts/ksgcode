@@ -72,6 +72,7 @@ import {
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./mcpExtensionSource.ts";
+import { piQuestionnaireSelect } from "./userInput.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
 const PI_DRIVER_KIND = PI_PROVIDER;
@@ -359,6 +360,7 @@ interface ActivePiTurn {
   messageOrdinal: number;
   readonly streamItems: Map<string, PiStreamItemState>;
   readonly toolArgs: Map<string, unknown>;
+  readonly pendingQuestionnaires: Map<string, unknown>;
   readonly toolStartedAt: Map<string, DateTime.Utc>;
   interrupted: boolean;
   nativeAborted: boolean;
@@ -980,7 +982,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         if (toolCallId === undefined) return;
         if (phase === "start") {
           turn.toolArgs.set(toolCallId, event["args"]);
+          if (toolName === "ask_user_question") {
+            turn.pendingQuestionnaires.set(toolCallId, event["args"]);
+          }
         }
+        if (phase === "end") turn.pendingQuestionnaires.delete(toolCallId);
         const args = event["args"] ?? turn.toolArgs.get(toolCallId);
         const emittedAt = yield* DateTime.now;
         const startedAt = turn.toolStartedAt.get(toolCallId) ?? emittedAt;
@@ -1333,7 +1339,15 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 ...itemBase,
                 type: "user_input_request",
                 requestId,
-                questions: [piQuestion(nativeRequestId, method, title, event)],
+                questions: [
+                  piQuestion(
+                    nativeRequestId,
+                    method,
+                    title,
+                    event,
+                    turn?.pendingQuestionnaires.values() ?? [],
+                  ),
+                ],
               };
         const pending: PendingPiPrompt = {
           nativeRequestId,
@@ -2484,6 +2498,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               messageOrdinal: 0,
               streamItems: new Map(),
               toolArgs: new Map(),
+              pendingQuestionnaires: new Map(),
               toolStartedAt: new Map(),
               interrupted: false,
               nativeAborted: false,
@@ -3184,6 +3199,7 @@ function piQuestion(
   method: "select" | "input" | "editor",
   title: string,
   event: PiRpcRecord,
+  questionnaires: Iterable<unknown>,
 ): OrchestrationV2UserInputQuestion {
   const options =
     method === "select" && Array.isArray(event["options"])
@@ -3199,10 +3215,26 @@ function piQuestion(
               value: "",
             },
           ];
+  if (method === "select") {
+    const structured = piQuestionnaireSelect(
+      questionId,
+      title,
+      options.map((option) => option.value),
+      questionnaires,
+    );
+    if (structured !== undefined) return structured;
+  }
   const question = recordString(event, "message") ?? recordString(event, "placeholder") ?? title;
   return {
     id: questionId,
-    header: title,
+    header:
+      question !== title
+        ? title
+        : method === "select"
+          ? "Select an option"
+          : method === "editor"
+            ? "Edit text"
+            : "Enter a value",
     question,
     ...(method === "editor" ? { initialAnswer: recordString(event, "prefill") ?? "" } : {}),
     options,

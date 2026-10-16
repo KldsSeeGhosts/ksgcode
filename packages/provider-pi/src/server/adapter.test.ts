@@ -3067,6 +3067,102 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("normalizes active questionnaire dialogs and round-trips choices and custom text", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      const args = {
+        questions: [
+          {
+            header: "New extension",
+            question: "Which extension?",
+            options: [
+              { label: "pi-fff", description: "Install the file finder." },
+              { label: "Computer use", description: "Check platform support." },
+            ],
+          },
+        ],
+      };
+      const dialog = {
+        type: "extension_ui_request",
+        method: "select",
+        title: "[New extension] Which extension?",
+        options: [
+          "1. pi-fff — Install the file finder.",
+          "2. Computer use — Check platform support.",
+          "3. Type something.",
+        ],
+      };
+      yield* fake.emit({
+        type: "tool_execution_start",
+        toolCallId: "ask-1",
+        toolName: "ask_user_question",
+        args,
+      });
+      for (const [id, answer] of [
+        ["ui-choice", dialog.options[1]!],
+        ["ui-custom", "My own answer"],
+      ] as const) {
+        yield* fake.emit({ ...dialog, id });
+        const event = yield* takeEvent(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "user_input_request" &&
+            event.turnItem.questions[0]?.id === id,
+        );
+        if (event.type !== "turn_item.updated" || event.turnItem.type !== "user_input_request")
+          return;
+        assert.deepEqual(event.turnItem.questions[0], {
+          id,
+          header: "New extension",
+          question: "Which extension?",
+          options: args.questions[0]!.options.map((option, index) => ({
+            ...option,
+            value: dialog.options[index],
+          })),
+        });
+        yield* runtime.respondToRuntimeRequest({
+          requestId: event.turnItem.requestId,
+          answers: { [id]: answer },
+        });
+        assert.equal((yield* fake.takeRequest("extension_ui_response"))["value"], answer);
+      }
+      yield* fake.emit({
+        type: "tool_execution_end",
+        toolCallId: "ask-1",
+        toolName: "ask_user_question",
+        result: { content: [] },
+      });
+      yield* fake.emit({ ...dialog, id: "ui-unrelated" });
+      const unrelated = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "user_input_request" &&
+          event.turnItem.questions[0]?.id === "ui-unrelated",
+      );
+      if (
+        unrelated.type !== "turn_item.updated" ||
+        unrelated.turnItem.type !== "user_input_request"
+      )
+        return;
+      assert.equal(unrelated.turnItem.questions[0]?.header, "Select an option");
+      assert.equal(unrelated.turnItem.questions[0]?.question, dialog.title);
+      assert.equal(unrelated.turnItem.questions[0]?.options[0]?.label, dialog.options[0]);
+      yield* runtime.respondToRuntimeRequest({
+        requestId: unrelated.turnItem.requestId,
+        answers: {},
+      });
+      assert.equal((yield* fake.takeRequest("extension_ui_response"))["cancelled"], true);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("offers an explicit empty value for extension input dialogs", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
@@ -3091,6 +3187,8 @@ describe("PiAdapterV2", () => {
       );
       if (event.type !== "turn_item.updated" || event.turnItem.type !== "user_input_request")
         return;
+      assert.equal(event.turnItem.questions[0]?.header, "Enter a value");
+      assert.equal(event.turnItem.questions[0]?.question, "Optional value");
       assert.equal(event.turnItem.questions[0]?.options[0]?.value, "");
       yield* runtime.respondToRuntimeRequest({
         requestId: event.turnItem.requestId,
