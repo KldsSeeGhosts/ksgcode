@@ -10,7 +10,6 @@ import { ompClient } from "@t3tools/provider-omp/client";
 import { piClient } from "@t3tools/provider-pi/client";
 import { zcodeClient } from "@t3tools/provider-zcode/client";
 
-/** The provider client definitions this mobile build ships. */
 const providerClients = makeProviderClientRegistry([
   cursorClient,
   grokClient,
@@ -23,7 +22,6 @@ const providerClients = makeProviderClientRegistry([
   acpRegistryClient,
 ]);
 
-/** The client definition for a driver kind, or `undefined` for drivers drawn by hand. */
 export function getProviderClient(driver: string | null | undefined) {
   return isProviderDriverKind(driver) ? providerClients.get(driver) : undefined;
 }

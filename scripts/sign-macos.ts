@@ -53,7 +53,6 @@ export async function resolveDevelopmentIdentity(
   return expected;
 }
 
-/** Sign files with matching options together instead of spawning codesign for each file. */
 export default async function sign(options: SignOptions): Promise<void> {
   const selfSigned = process.env.T3CODE_MACOS_SELF_SIGNED === "true";
   const development = process.env.T3CODE_MACOS_DEVELOPMENT === "true";

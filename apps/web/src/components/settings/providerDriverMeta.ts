@@ -15,7 +15,6 @@ import { ompClient } from "@t3tools/provider-omp/client";
 import { piClient } from "@t3tools/provider-pi/client";
 import { zcodeClient } from "@t3tools/provider-zcode/client";
 
-/** The provider client definitions this web build ships, in presentation order. */
 export const providerClients = makeProviderClientRegistry([
   {
     driverKind: ProviderDriverKind.make("codex"),
