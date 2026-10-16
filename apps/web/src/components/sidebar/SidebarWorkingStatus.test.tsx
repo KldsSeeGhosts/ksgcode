@@ -65,7 +65,7 @@ function statusElement() {
 }
 
 describe("SidebarWorkingStatus", () => {
-  it("pauses the mounted wave offscreen, while hidden, and when reduced motion is enabled", async () => {
+  it("pauses the mounted shimmer offscreen, while hidden, and when reduced motion is enabled", async () => {
     await act(async () => root.render(<SidebarWorkingStatus label="Working" />));
     const status = statusElement();
     const observer = observers[0]!;
