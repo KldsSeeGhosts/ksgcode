@@ -687,6 +687,10 @@ function SortableThreadRow(props: {
 // with unsent composer text both use this tint and pen so they read alike.
 const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
 const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
+const cardSurfaceClassName =
+  "rounded-lg bg-sidebar-foreground/3 inset-ring inset-ring-sidebar-foreground/2 hover:inset-ring-sidebar-foreground/9";
+const activeCardEdgeClassName =
+  "inset-ring-sidebar-foreground/15 hover:inset-ring-sidebar-foreground/15";
 
 // Structural list items — the section headers and the
 // empty-section placeholders — take part in the sortable list so they shift
@@ -916,7 +920,10 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
         data-testid="sidebar-draft-row"
         className={cn(
           "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left text-sidebar-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          props.isActive ? "bg-sidebar-row-active" : draftSurfaceClassName,
+          cardSurfaceClassName,
+          props.isActive
+            ? cn("bg-sidebar-row-active", activeCardEdgeClassName)
+            : draftSurfaceClassName,
         )}
         onClick={handleActivate}
         onContextMenu={handleContextMenu}
@@ -1306,7 +1313,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           // A native /goal keeps the agent going across turns until it is met.
           label: thread.goal?.status === "active" ? "Goal" : "Working",
           icon: "working" as const,
-          // The fork's text wave is visibility-gated; the elapsed time stays still.
+          // Only the label shimmers; the elapsed time stays still.
           className: "text-info",
         }
       : status === "waiting"
@@ -1584,22 +1591,28 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     ],
   );
 
-  // All sidebar rows share one surface model. Live threads used to look
-  // like elevated cards while settled threads were plain rows, leaving neither
-  // a useful hierarchy nor a reliable hover cue. Status now lives in the row
-  // content; surface is reserved for interaction (hover, multi-select, route).
+  // Cards keep a quiet resting surface; stronger edges mark selection.
+  // Slim history rows stay flat, and status still lives in the row content.
   const rowSurfaceClassName = cn(
     "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    variant === "card" && cardSurfaceClassName,
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     props.isActive
-      ? "bg-sidebar-row-active text-sidebar-foreground"
+      ? cn(
+          "bg-sidebar-row-active text-sidebar-foreground",
+          variant === "card" && activeCardEdgeClassName,
+        )
       : isSelected || props.sweepAction !== null
-        ? "bg-sidebar-row-selected text-sidebar-foreground"
+        ? cn(
+            "bg-sidebar-row-selected text-sidebar-foreground",
+            variant === "card" &&
+              "inset-ring-sidebar-foreground/11 hover:inset-ring-sidebar-foreground/11",
+          )
         : hasUnsentDraft
           ? cn(draftSurfaceClassName, "text-sidebar-foreground")
           : shouldRecede
             ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-            : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+            : "text-sidebar-foreground hover:bg-sidebar-row-hover",
     // Background work fades as a whole row, status label included, so it
     // takes less attention than rows that need a human (input, approval).
     shouldRecede &&

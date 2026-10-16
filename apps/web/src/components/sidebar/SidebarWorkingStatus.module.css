@@ -1,36 +1,13 @@
-@keyframes sidebar-working-wave {
-  0%,
-  12%,
-  40%,
-  100% {
-    transform: translateY(0);
-  }
-  25% {
-    transform: translateY(-0.075rem);
-  }
-}
-
 @layer components {
-  .letter {
-    animation: sidebar-working-wave 2.4s ease-in-out infinite;
-    animation-play-state: var(--visible-animation-state, paused);
-    will-change: var(--visible-animation-will-change, auto);
-  }
-
   @media (any-hover: hover) {
-    :global(.group\/sidebar-row):hover .letter {
-      animation-play-state: paused;
+    :global(.group\/sidebar-row):hover .shimmer {
+      --visible-animation-state: paused;
+      --visible-animation-will-change: auto;
     }
   }
 
-  :global(.group\/sidebar-status-slot):has(:focus-visible) .letter {
-    animation-play-state: paused;
-  }
-
-  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
-    .letter {
-      animation: none;
-      will-change: auto;
-    }
+  :global(.group\/sidebar-status-slot):has(:focus-visible) .shimmer {
+    --visible-animation-state: paused;
+    --visible-animation-will-change: auto;
   }
 }
