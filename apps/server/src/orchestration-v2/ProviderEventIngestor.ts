@@ -3,6 +3,7 @@ import {
   CommandId,
   OrchestrationV2DomainEvent,
   OrchestrationV2StoredEvent,
+  type ContextBreakdown,
   type OrchestrationV2PlanArtifact,
   type OrchestrationV2Run,
   type OrchestrationV2ProviderTurn,
@@ -11,6 +12,7 @@ import {
   type ModelSelection,
   type RuntimeMode,
   type ProviderInteractionMode,
+  ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionId,
   ProviderThreadId,
@@ -27,6 +29,11 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import { AgentScope } from "@t3tools/shared/AgentScope";
+import {
+  type ContextSizeTracker,
+  estimateContextBreakdown,
+  makeContextSizeTracker,
+} from "@t3tools/shared/contextBreakdown";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -37,6 +44,9 @@ import { makeProviderFailureTurnItem } from "@t3tools/provider-core/server/failu
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { stripUnservedToolOutputImageBytes } from "./toolOutputImageBytes.ts";
 import { boundFileChangeForStorage } from "./WireProjection.ts";
+
+const CLAUDE_DRIVER = ProviderDriverKind.make("claudeAgent");
+const MAX_CONTEXT_SIZE_TRACKERS = 32;
 
 export class ProviderEventNormalizeError extends Schema.TaggedError<ProviderEventNormalizeError>()(
   "ProviderEventNormalizeError",
@@ -321,6 +331,60 @@ export const layer: Layer.Layer<
     const agentScope = yield* AgentScope;
     const completedTurnAnalytics = new Set<string>();
 
+    // Item sizes per provider thread, for providers that report only a total.
+    // A tracker is made when a thread first reports usage and seeded from the
+    // items already stored; after that it follows live item updates. Oldest
+    // threads fall out first, and reseed the next time they report usage.
+    const contextSizeTrackers = new Map<ProviderThreadId, ContextSizeTracker>();
+
+    const contextSizeTracker = Effect.fnUntraced(function* (
+      threadId: ThreadId,
+      providerThreadId: ProviderThreadId,
+    ) {
+      const existing = contextSizeTrackers.get(providerThreadId);
+      if (existing !== undefined) {
+        contextSizeTrackers.delete(providerThreadId);
+        contextSizeTrackers.set(providerThreadId, existing);
+        return existing;
+      }
+      const tracker = makeContextSizeTracker();
+      const stored = yield* projections
+        .getThreadRecords(threadId, ["turnItems"])
+        .pipe(Effect.orElseSucceed(() => undefined));
+      for (const item of stored?.turnItems ?? []) {
+        if (item.providerThreadId === providerThreadId) tracker.apply(item);
+      }
+      contextSizeTrackers.set(providerThreadId, tracker);
+      if (contextSizeTrackers.size > MAX_CONTEXT_SIZE_TRACKERS) {
+        const oldest = contextSizeTrackers.keys().next();
+        if (!oldest.done) contextSizeTrackers.delete(oldest.value);
+      }
+      return tracker;
+    });
+
+    /**
+     * Adds the estimated breakdown to a usage report that has none. Claude
+     * reports its own, so it is left alone.
+     */
+    const withContextEstimate = Effect.fnUntraced(function* <
+      Usage extends {
+        readonly usedTokens: number;
+        readonly breakdown?: ContextBreakdown | undefined;
+      },
+    >(input: {
+      readonly driver: ProviderDriverKind;
+      readonly threadId: ThreadId;
+      readonly providerThreadId: ProviderThreadId;
+      readonly usage: Usage;
+    }) {
+      if (input.driver === CLAUDE_DRIVER || input.usage.breakdown !== undefined) {
+        return input.usage;
+      }
+      const tracker = yield* contextSizeTracker(input.threadId, input.providerThreadId);
+      const breakdown = estimateContextBreakdown(tracker.totals(), input.usage.usedTokens);
+      return breakdown === undefined ? input.usage : { ...input.usage, breakdown };
+    });
+
     const makeDomainEvent = (
       input: ProviderEventIngestInput,
       payloadInput: {
@@ -576,10 +640,23 @@ export const layer: Layer.Layer<
             ];
           case "provider_thread.updated": {
             const threadId = input.event.providerThread.appThreadId ?? input.threadId;
+            const contextUsage = input.event.providerThread.contextUsage;
+            const providerThread =
+              contextUsage === null || contextUsage === undefined
+                ? input.event.providerThread
+                : {
+                    ...input.event.providerThread,
+                    contextUsage: yield* withContextEstimate({
+                      driver: input.event.driver,
+                      threadId,
+                      providerThreadId: input.event.providerThread.id,
+                      usage: contextUsage,
+                    }),
+                  };
             const updated = yield* makeDomainEvent(input, {
               type: "provider-thread.updated",
               threadId,
-              payload: input.event.providerThread,
+              payload: providerThread,
             });
             return input.event.retainedNativeTurnIds === undefined
               ? [updated]
@@ -592,7 +669,20 @@ export const layer: Layer.Layer<
                   })),
                 ];
           }
-          case "provider_turn.updated":
+          case "provider_turn.updated": {
+            const tokenUsage = input.event.providerTurn.tokenUsage;
+            const providerTurn =
+              tokenUsage === undefined
+                ? input.event.providerTurn
+                : {
+                    ...input.event.providerTurn,
+                    tokenUsage: yield* withContextEstimate({
+                      driver: input.event.driver,
+                      threadId: input.event.threadId ?? input.threadId,
+                      providerThreadId: input.event.providerTurn.providerThreadId,
+                      usage: tokenUsage,
+                    }),
+                  };
             return [
               ...(["completed", "interrupted", "failed", "cancelled"].includes(
                 input.event.providerTurn.status,
@@ -606,10 +696,11 @@ export const layer: Layer.Layer<
               yield* makeDomainEvent(input, {
                 type: "provider-turn.updated",
                 ...(input.event.threadId === undefined ? {} : { threadId: input.event.threadId }),
-                payload: input.event.providerTurn,
+                payload: providerTurn,
                 nodeId: input.event.providerTurn.nodeId,
               }),
             ];
+          }
           case "node.updated":
             // Adapters send an unchanged node again with each text delta. Compare with the
             // stored node, not the last one sent, because the server also writes nodes.
@@ -644,6 +735,14 @@ export const layer: Layer.Layer<
               }),
             ];
           case "turn_item.updated":
+            if (
+              input.event.turnItem.providerThreadId !== null &&
+              input.event.turnItem.providerThreadId !== undefined
+            ) {
+              contextSizeTrackers
+                .get(input.event.turnItem.providerThreadId)
+                ?.apply(input.event.turnItem);
+            }
             return [
               yield* makeDomainEvent(input, {
                 type: "turn-item.updated",

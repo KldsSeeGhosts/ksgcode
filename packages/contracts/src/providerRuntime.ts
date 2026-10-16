@@ -260,8 +260,25 @@ const ThreadMetadataUpdatedPayload = Schema.Struct({
 });
 export type ThreadMetadataUpdatedPayload = typeof ThreadMetadataUpdatedPayload.Type;
 
+/**
+ * One row of a context window breakdown. `used` rows are reported by the
+ * provider. `estimated` rows are T3's own sizing of the thread's items, and
+ * `inferred` is the remainder of the reported total those estimates do not
+ * explain. `buffer` is a reserve the provider keeps for compaction.
+ */
+export const ContextBreakdownRow = Schema.Struct({
+  label: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(64)),
+  tokens: NonNegativeInt,
+  kind: Schema.Literals(["used", "estimated", "inferred", "buffer"]),
+});
+export type ContextBreakdownRow = typeof ContextBreakdownRow.Type;
+
+export const ContextBreakdown = Schema.Array(ContextBreakdownRow).check(Schema.isMaxLength(32));
+export type ContextBreakdown = typeof ContextBreakdown.Type;
+
 export const ThreadTokenUsageSnapshot = Schema.Struct({
   usedTokens: NonNegativeInt,
+  breakdown: Schema.optional(ContextBreakdown),
   totalProcessedTokens: Schema.optional(NonNegativeInt),
   maxTokens: Schema.optional(PositiveInt),
   inputTokens: Schema.optional(NonNegativeInt),

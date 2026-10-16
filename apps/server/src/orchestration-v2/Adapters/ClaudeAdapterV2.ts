@@ -68,6 +68,7 @@ import {
   type OrchestrationV2ProviderRetry,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  type ContextBreakdownRow,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2UserInputQuestion,
@@ -227,6 +228,36 @@ export function claudeProviderTurnTokenUsage(
     updatedAt,
   };
 }
+/**
+ * Rows for the context card from the CLI's own /context categories. Free
+ * space and deferred tool schemas are left out: the first follows from the
+ * window and the second sits outside it.
+ */
+export function claudeContextBreakdown(usage: {
+  readonly categories: ReadonlyArray<{
+    readonly name: string;
+    readonly tokens: number;
+    readonly kind: "used" | "free" | "buffer" | "deferred";
+  }>;
+}): ReadonlyArray<ContextBreakdownRow> | undefined {
+  const rows = usage.categories.flatMap((category) => {
+    const label = category.name.trim().slice(0, 64);
+    const tokens = Math.round(category.tokens);
+    return (category.kind === "used" || category.kind === "buffer") &&
+      label.length > 0 &&
+      Number.isFinite(tokens) &&
+      tokens > 0
+      ? [{ label, tokens, kind: category.kind }]
+      : [];
+  });
+  return rows.length === 0 ? undefined : rows.slice(0, 32);
+}
+
+// The CLI answers from local estimates in summary mode, so a slow answer means
+// it is busy, and the card keeps the previous breakdown instead of holding the
+// turn's end.
+const CLAUDE_CONTEXT_USAGE_TIMEOUT = "2 seconds";
+
 export const CLAUDE_DEFAULT_INSTANCE_ID = defaultInstanceIdForDriver(CLAUDE_PROVIDER);
 const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
 // Entry extensions the Claude SDK runs through node instead of executing.
@@ -430,6 +461,14 @@ export interface ClaudeAgentSdkQuerySession {
   readonly backgroundTasks: (
     toolUseId: string,
   ) => Effect.Effect<boolean, ClaudeAgentSdkQueryRunnerError>;
+  /**
+   * The CLI's per-category context usage. Absent on runners that cannot ask,
+   * such as recorded replays; it is not a logged protocol frame.
+   */
+  readonly contextUsage?: Effect.Effect<
+    Awaited<ReturnType<ClaudeQuery["getContextUsage"]>>,
+    ClaudeAgentSdkQueryRunnerError
+  >;
   readonly interrupt: Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
   readonly close: Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
 }
@@ -934,6 +973,12 @@ export const layerQueryRunner: Layer.Layer<
                 }),
               ),
             ),
+          // Summary detail answers from the CLI's local estimates, with no
+          // token-count API calls, so asking once per turn costs nothing.
+          contextUsage: Effect.tryPromise({
+            try: () => queryRuntime.getContextUsage({ detail: "summary" }),
+            catch: (cause) => queryRunnerError(cause, "getContextUsage"),
+          }),
           backgroundTasks: (toolUseId) =>
             Effect.tryPromise({
               try: () => queryRuntime.backgroundTasks(toolUseId),
@@ -3075,6 +3120,9 @@ interface ActiveClaudeTurnContext {
   // Usage of the results that steers ended, oldest first. The final result's
   // usage covers only its own segment, so the turn bills these as well.
   readonly steeredSegmentUsage: Array<SDKResultMessage["usage"]>;
+  // The newest context usage this turn reported, so the breakdown fetched when
+  // the turn ends can ride on the same figures instead of replacing them.
+  latestTokenUsage: ReturnType<typeof claudeProviderTurnTokenUsage> | undefined;
   readonly subagentsByTaskId: Map<string, ActiveClaudeSubagent>;
   readonly subagentsByToolUseId: Map<string, ActiveClaudeSubagent>;
   readonly subagentNodesByTaskId: Map<string, OrchestrationV2ExecutionNode["id"]>;
@@ -6035,6 +6083,22 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             });
           }
 
+          // A finished turn has the CLI idle, so this is when it can answer.
+          // Best effort: no answer leaves the card on its previous breakdown.
+          const latestTokenUsage = input.context.latestTokenUsage;
+          const breakdown =
+            input.status === "completed" &&
+            latestTokenUsage !== undefined &&
+            liveQuery !== null &&
+            !liveQuery.stopping &&
+            liveQuery.query.contextUsage !== undefined
+              ? yield* liveQuery.query.contextUsage.pipe(
+                  Effect.timeout(CLAUDE_CONTEXT_USAGE_TIMEOUT),
+                  Effect.map(claudeContextBreakdown),
+                  Effect.orElseSucceed(() => undefined),
+                )
+              : undefined;
+
           const threadDisposition = input.threadDisposition ?? "reusable";
           const terminalEvent: ProviderAdapter.ProviderAdapterV2Event =
             input.status === "failed"
@@ -6079,6 +6143,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     status: input.status,
                     completedAt: input.completedAt,
                   }),
+                  ...(breakdown === undefined || latestTokenUsage === undefined
+                    ? {}
+                    : { tokenUsage: { ...latestTokenUsage, breakdown } }),
                   turnTokenUsage: normalizeClaudeTurnTokenUsage(
                     input.result,
                     input.context.subagentsByTaskId.size > 0 ||
@@ -7225,6 +7292,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               message.message.usage !== undefined &&
               message.message.model !== "<synthetic>"
             ) {
+              context.latestTokenUsage = claudeProviderTurnTokenUsage(
+                message.message.usage,
+                context.input.modelSelection,
+                DateTime.formatIso(now),
+              );
               yield* emitProviderEvent({
                 type: "provider_turn.updated",
                 driver: CLAUDE_PROVIDER,
@@ -7243,11 +7315,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   status: "running",
                   startedAt: context.startedAt,
                   completedAt: null,
-                  tokenUsage: claudeProviderTurnTokenUsage(
-                    message.message.usage,
-                    context.input.modelSelection,
-                    DateTime.formatIso(now),
-                  ),
+                  tokenUsage: context.latestTokenUsage,
                 },
               });
             }
@@ -8786,6 +8854,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               rateLimitResetTimes: new Map(),
               latestAssistantRateLimited: false,
               steeredSegmentUsage: [],
+              latestTokenUsage: undefined,
               subagentsByTaskId: new Map(),
               subagentsByToolUseId: new Map(),
               subagentNodesByTaskId: new Map(),

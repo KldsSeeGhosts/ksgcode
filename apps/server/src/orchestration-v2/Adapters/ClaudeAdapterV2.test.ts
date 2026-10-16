@@ -935,6 +935,33 @@ describe("ClaudeAdapterV2 context usage", () => {
       undefined,
     );
   });
+
+  it("keeps used and buffer categories and drops free and deferred rows", () => {
+    assert.deepEqual(
+      ClaudeAdapterV2.claudeContextBreakdown({
+        categories: [
+          { name: "Messages", tokens: 19_100.4, kind: "used" },
+          { name: "MCP tools", tokens: 0, kind: "used" },
+          { name: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+          { name: "Free space", tokens: 11_700, kind: "free" },
+          { name: "MCP tools (deferred)", tokens: 48_100, kind: "deferred" },
+        ],
+      }),
+      [
+        { label: "Messages", tokens: 19_100, kind: "used" },
+        { label: "Autocompact buffer", tokens: 33_000, kind: "buffer" },
+      ],
+    );
+  });
+
+  it("reports no breakdown when the CLI returns no usable rows", () => {
+    assert.strictEqual(
+      ClaudeAdapterV2.claudeContextBreakdown({
+        categories: [{ name: "Free space", tokens: 100_000, kind: "free" }],
+      }),
+      undefined,
+    );
+  });
 });
 
 describe("ClaudeAdapterV2 session permissions", () => {

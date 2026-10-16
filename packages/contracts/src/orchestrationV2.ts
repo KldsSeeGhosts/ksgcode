@@ -71,7 +71,7 @@ import {
   ToolActivityIcon,
   ToolActivitySource,
 } from "./providerRuntime.ts";
-import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+import { ContextBreakdown, ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -1056,6 +1056,7 @@ export type OrchestrationV2ContextHandoff = typeof OrchestrationV2ContextHandoff
 /** Live context usage reported by the provider mid-turn (#8144). */
 export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
   usedTokens: NonNegativeInt,
+  breakdown: Schema.optional(ContextBreakdown),
   maxTokens: Schema.optional(Schema.NullOr(NonNegativeInt)),
   inputTokens: Schema.optional(NonNegativeInt),
   cachedInputTokens: Schema.optional(NonNegativeInt),

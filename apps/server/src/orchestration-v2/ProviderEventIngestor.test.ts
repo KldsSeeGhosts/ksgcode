@@ -1654,6 +1654,122 @@ layer("ProviderEventIngestorV2", (it) => {
     }),
   );
 
+  it.effect("estimates a context breakdown for providers that report only a total", () =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const ingestor = yield* ProviderEventIngestor.ProviderEventIngestorV2;
+      const idAllocator = yield* IdAllocator.IdAllocatorV2;
+      const threadEvent = yield* threadCreatedEvent(now);
+      const providerSessionId = yield* idAllocator.allocate.providerSession({
+        providerInstanceId: modelSelection.instanceId,
+        threadId: threadEvent.threadId,
+      });
+      const providerThreadId = idAllocator.derive.providerThread({
+        driver: CODEX_DRIVER,
+        nativeThreadId: "breakdown-thread",
+      });
+      const message = (id: string, ordinal: number, chars: number): OrchestrationV2TurnItem => ({
+        id: TurnItemId.make(id),
+        threadId: threadEvent.threadId,
+        runId: null,
+        nodeId: null,
+        providerThreadId,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal,
+        status: "completed",
+        title: null,
+        startedAt: now,
+        completedAt: now,
+        updatedAt: now,
+        type: "assistant_message",
+        messageId: MessageId.make(`message:${id}`),
+        text: "x".repeat(chars),
+        streaming: false,
+      });
+      const ingestItem = (turnItem: OrchestrationV2TurnItem) =>
+        ingestor.ingestNormalized({
+          providerSessionId,
+          providerInstanceId: modelSelection.instanceId,
+          threadId: threadEvent.threadId,
+          event: { type: "turn_item.updated", driver: CODEX_DRIVER, turnItem },
+        });
+      const reportUsage = (
+        driver: typeof CODEX_DRIVER,
+        nativeTurnId: string,
+        ordinal: number,
+        usedTokens: number,
+      ) =>
+        ingestor.ingestNormalized({
+          providerSessionId,
+          providerInstanceId: modelSelection.instanceId,
+          threadId: threadEvent.threadId,
+          event: {
+            type: "provider_turn.updated",
+            driver,
+            providerTurn: {
+              id: idAllocator.derive.providerTurn({ driver, nativeTurnId }),
+              providerThreadId,
+              nodeId: NodeId.make(`node:${nativeTurnId}`),
+              runAttemptId: null,
+              nativeTurnRef: null,
+              ordinal,
+              status: "running",
+              startedAt: now,
+              completedAt: null,
+              tokenUsage: { usedTokens, updatedAt: DateTime.formatIso(now) },
+            },
+          },
+        });
+      const breakdownOf = (nativeTurnId: string) =>
+        projectionStore
+          .getThreadProjection(threadEvent.threadId)
+          .pipe(
+            Effect.map(
+              (projection) =>
+                projection.providerTurns.find(
+                  (turn) =>
+                    turn.id ===
+                    idAllocator.derive.providerTurn({ driver: CODEX_DRIVER, nativeTurnId }),
+                )?.tokenUsage?.breakdown,
+            ),
+          );
+
+      yield* eventSink.write({ events: [threadEvent] });
+      // 3500 chars is 1000 tokens. This one is stored before the thread ever
+      // reports usage, so the first report has to seed from storage.
+      yield* ingestItem(message("turn-item:breakdown-1", 1, 3_500));
+      yield* reportUsage(CODEX_DRIVER, "breakdown-turn", 1, 10_000);
+      assert.deepEqual(yield* breakdownOf("breakdown-turn"), [
+        { label: "System", tokens: 9_000, kind: "inferred" },
+        { label: "Messages", tokens: 1_000, kind: "estimated" },
+      ]);
+
+      // Once tracked, live items count without another read.
+      yield* ingestItem(message("turn-item:breakdown-2", 2, 7_000));
+      yield* reportUsage(CODEX_DRIVER, "breakdown-turn-2", 2, 10_000);
+      assert.deepEqual(yield* breakdownOf("breakdown-turn-2"), [
+        { label: "System", tokens: 7_000, kind: "inferred" },
+        { label: "Messages", tokens: 3_000, kind: "estimated" },
+      ]);
+
+      // Claude reports its own breakdown, so it is never estimated.
+      const CLAUDE_DRIVER = ProviderDriverKind.make("claudeAgent");
+      yield* reportUsage(CLAUDE_DRIVER, "claude-turn", 3, 10_000);
+      const claudeProjection = yield* projectionStore.getThreadProjection(threadEvent.threadId);
+      assert.isUndefined(
+        claudeProjection.providerTurns.find(
+          (turn) =>
+            turn.id ===
+            idAllocator.derive.providerTurn({ driver: CLAUDE_DRIVER, nativeTurnId: "claude-turn" }),
+        )?.tokenUsage?.breakdown,
+      );
+    }),
+  );
+
   it.effect("routes provider-owned child artifacts to their child app thread", () =>
     Effect.gen(function* () {
       const now = yield* DateTime.now;
