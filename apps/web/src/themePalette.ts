@@ -1104,8 +1104,8 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
 /** Only themes with a maintained CSS artwork palette can replace the environment pill. */
 export function themeAllowsSidebarArtwork(theme: ThemePreference): boolean {
   const themeId = themeIdFromPreference(theme);
-  // The fork's published Claude theme keeps its existing palette and preference id.
-  if (themeId === "claude") return getThemeDefinition(theme) !== null;
+  // The fork's published Claude and Cursor themes keep their existing palettes and preference ids.
+  if (themeId === "claude" || themeId === "cursor") return getThemeDefinition(theme) !== null;
   return (
     BUILT_IN_THEME_DEFINITIONS.find((definition) => definition.id === themeId)?.sidebarArtwork ===
     true
