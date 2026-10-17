@@ -392,7 +392,7 @@ function SidebarProviderStack(props: {
       acpRegistryAgentId={currentEntry.acpRegistryAgentId}
       acpRegistryIconUrl={currentEntry.acpRegistryIconUrl}
       showBadge={showInstanceBadge}
-      iconClassName="size-3.5 opacity-60"
+      iconClassName="size-3.5 opacity-75"
       badgeClassName="right-[-0.1875rem] bottom-[-0.1875rem] h-3 min-w-3 px-0.5 text-5xs"
     />
   );
@@ -655,16 +655,6 @@ function SortableThreadRow(props: {
 
 const draftSurfaceClassName = "bg-warning/4 hover:bg-warning/8";
 const draftPenClassName = "size-3 shrink-0 text-warning-foreground";
-const cardBaseClassName =
-  "rounded-lg inset-ring transition-[background-color,box-shadow] duration-150 motion-reduce:transition-none";
-const recededCardSurfaceClassName =
-  "bg-sidebar-row-hover/45 inset-ring-transparent hover:bg-sidebar-row-hover hover:inset-ring-sidebar-foreground/5";
-const foregroundCardSurfaceClassName =
-  "bg-sidebar-row-hover/65 inset-ring-sidebar-foreground/3.5 hover:bg-sidebar-row-hover hover:inset-ring-sidebar-foreground/6";
-const activeCardSurfaceClassName =
-  "bg-sidebar-row-active bg-linear-to-br from-sidebar-foreground/4 via-transparent to-transparent inset-ring-sidebar-foreground/14 hover:inset-ring-sidebar-foreground/14 shadow-2xs";
-const selectedCardSurfaceClassName =
-  "bg-sidebar-row-selected inset-ring-sidebar-foreground/10 hover:inset-ring-sidebar-foreground/12";
 
 function SortableSidebarMarker(props: {
   marker: SidebarListMarker;
@@ -871,26 +861,23 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
         aria-current={accessibility.current}
         data-testid="sidebar-draft-row"
         className={cn(
-          "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left text-sidebar-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          cardBaseClassName,
-          props.isActive
-            ? activeCardSurfaceClassName
-            : cn(draftSurfaceClassName, "inset-ring-warning/10 hover:inset-ring-warning/18"),
+          "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left text-sidebar-foreground transition-colors duration-150 motion-reduce:transition-none outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          props.isActive ? "bg-sidebar-row-active" : draftSurfaceClassName,
         )}
         onClick={handleActivate}
         onContextMenu={handleContextMenu}
         onKeyDown={handleKeyDown}
       >
         <span className="sr-only">{preview}</span>
-        <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
+        <div className="relative z-10 flex h-[3.25rem] flex-col justify-between px-(--sidebar-row-content-inset) py-1.5">
           <div className="flex h-5 min-w-0 items-center gap-1.5">
             <SquarePenIcon aria-hidden className={draftPenClassName} />
-            {props.project ? (
-              <ProjectFavicon project={props.project} className="size-4 shrink-0" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
-              {props.projectDisplayName}
-            </span>
+            <div
+              aria-hidden
+              className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90"
+            >
+              {preview}
+            </div>
             <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end">
               <Tooltip>
                 <TooltipTrigger
@@ -909,8 +896,11 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
               </Tooltip>
             </span>
           </div>
-          <div aria-hidden className="mt-0.5 truncate text-sm font-medium text-foreground/90">
-            {preview}
+          <div className="flex h-4 min-w-0 items-center gap-1.5 text-2xs leading-4 text-secondary-label">
+            {props.project ? (
+              <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+            ) : null}
+            <span className="min-w-0 flex-1 truncate">{props.projectDisplayName}</span>
           </div>
         </div>
       </div>
@@ -1465,40 +1455,20 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     ],
   );
 
-  // Cards keep a quiet resting surface; stronger edges mark selection.
-  // Slim history rows stay flat, and status still lives in the row content.
+  // All sidebar rows share one flat resting surface; background fill is
+  // reserved for interaction (hover, selection, active route, or draft tint).
   const rowSurfaceClassName = cn(
-    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-    variant === "card" && cardBaseClassName,
+    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left transition-colors duration-150 motion-reduce:transition-none outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
     variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     props.isActive
-      ? cn(
-          "bg-sidebar-row-active text-sidebar-foreground",
-          variant === "card" && activeCardSurfaceClassName,
-        )
+      ? "bg-sidebar-row-active text-sidebar-foreground"
       : isSelected || props.sweepAction !== null
-        ? cn(
-            "bg-sidebar-row-selected text-sidebar-foreground",
-            variant === "card" && selectedCardSurfaceClassName,
-          )
+        ? "bg-sidebar-row-selected text-sidebar-foreground"
         : hasUnsentDraft
-          ? cn(
-              draftSurfaceClassName,
-              "text-sidebar-foreground",
-              variant === "card" && "inset-ring-warning/10 hover:inset-ring-warning/18",
-            )
-          : variant === "card"
-            ? shouldRecede
-              ? cn(
-                  recededCardSurfaceClassName,
-                  "text-sidebar-muted-foreground/80 hover:text-sidebar-foreground",
-                )
-              : cn(foregroundCardSurfaceClassName, "text-sidebar-foreground")
-            : shouldRecede
-              ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
-              : "text-sidebar-foreground hover:bg-sidebar-row-hover",
-    // Slim background work fades as a whole row; cards keep their surface
-    // steady and fade the working status label inside instead.
+          ? cn(draftSurfaceClassName, "text-sidebar-foreground")
+          : shouldRecede
+            ? "bg-transparent text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+            : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
     variant !== "card" &&
       shouldRecede &&
       status === "working" &&
@@ -1838,7 +1808,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       {...(fileDropHandlers ?? {})}
       className={cn(
         // Matches the card content box; the py-0.5 padding is added on top.
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_66px]",
+        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_52px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -1862,34 +1832,28 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           }
         >
           {accessibleTitle}
-          <div className="relative z-10 flex h-[4.125rem] flex-col justify-between px-(--sidebar-row-content-inset) py-1.5">
-            <div className="flex h-4 min-w-0 items-center gap-1.5">
+          <div className="relative z-10 flex h-[3.25rem] flex-col justify-between px-(--sidebar-row-content-inset) py-1.5">
+            <div className="flex h-5 min-w-0 items-center gap-1.5">
+              <span
+                aria-hidden
+                className={cn(
+                  "pointer-events-none inline-flex shrink-0 items-center transition-opacity",
+                  shouldRecede &&
+                    "opacity-60 group-focus-within/sidebar-row:opacity-95 group-hover/sidebar-row:opacity-95",
+                )}
+              >
+                <SidebarProviderStack
+                  thread={thread}
+                  providerEntryByInstanceId={props.providerEntryByInstanceId}
+                />
+              </span>
               {draftIndicator}
-              {props.project ? (
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 items-center transition-opacity",
-                    shouldRecede &&
-                      "opacity-60 group-focus-within/sidebar-row:opacity-90 group-hover/sidebar-row:opacity-90",
-                  )}
-                >
-                  <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+              {title}
+              {isRegeneratingTitle ? (
+                <span role="status" className="sr-only">
+                  Regenerating title
                 </span>
               ) : null}
-              {props.projectDisplayName ? (
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-2xs transition-colors",
-                    shouldRecede
-                      ? "font-normal text-sidebar-muted-foreground/65 group-focus-within/sidebar-row:text-secondary-label group-hover/sidebar-row:text-secondary-label"
-                      : "font-medium text-secondary-label",
-                  )}
-                >
-                  {props.projectDisplayName}
-                </span>
-              ) : (
-                <span className="flex-1" />
-              )}
               {pinIndicator}
               {sortable?.isDragging ? (
                 dragDestination
@@ -2039,58 +2003,69 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               )}
               {props.sweepAction !== null ? dragDestination : null}
             </div>
-            <div className="flex h-5 min-w-0 items-center">
-              {title}
-              {isRegeneratingTitle ? (
-                <span role="status" className="sr-only">
-                  Regenerating title
+            <div className="flex h-4 min-w-0 items-center gap-1.5 text-2xs leading-4 text-secondary-label">
+              {props.project ? (
+                <span
+                  className={cn(
+                    "inline-flex shrink-0 items-center transition-opacity",
+                    shouldRecede &&
+                      "opacity-60 group-focus-within/sidebar-row:opacity-90 group-hover/sidebar-row:opacity-90",
+                  )}
+                >
+                  <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
                 </span>
               ) : null}
-            </div>
-            <div className="flex h-3.5 min-w-0 items-center gap-1.5 text-secondary-label text-2xs leading-3.5">
+              {props.projectDisplayName ? (
+                <span
+                  className={cn(
+                    "truncate transition-colors",
+                    thread.branch || showsScratchMachine
+                      ? "max-w-[45%] shrink-0"
+                      : "min-w-0 flex-1",
+                    shouldRecede
+                      ? "text-sidebar-muted-foreground/65 group-focus-within/sidebar-row:text-secondary-label group-hover/sidebar-row:text-secondary-label"
+                      : "text-secondary-label",
+                  )}
+                >
+                  {props.projectDisplayName}
+                </span>
+              ) : null}
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
                   branch, so the row lost its most stable identifier. */}
               {thread.branch ? (
-                <>
+                <span
+                  className={cn(
+                    "inline-flex min-w-0 flex-1 items-center gap-1 transition-colors",
+                    shouldRecede
+                      ? "text-sidebar-muted-foreground/45 group-focus-within/sidebar-row:text-sidebar-muted-foreground/65 group-hover/sidebar-row:text-sidebar-muted-foreground/65"
+                      : "text-sidebar-muted-foreground/65",
+                  )}
+                >
                   <ThreadWorktreeIndicator thread={thread} />
-                  <span
-                    className={cn(
-                      "flex min-w-0 flex-1 transition-colors",
-                      shouldRecede
-                        ? "text-sidebar-muted-foreground/45 group-focus-within/sidebar-row:text-sidebar-muted-foreground/65 group-hover/sidebar-row:text-sidebar-muted-foreground/65"
-                        : "text-sidebar-muted-foreground/65",
-                    )}
-                  >
+                  <span className="flex min-w-0 flex-1">
                     <MiddleTruncate value={thread.branch} showTitle={false} />
                   </span>
-                </>
+                </span>
               ) : showsScratchMachine ? (
-                <>
+                <span
+                  className={cn(
+                    "inline-flex min-w-0 flex-1 items-center gap-1 transition-colors",
+                    shouldRecede
+                      ? "text-sidebar-muted-foreground/40 group-focus-within/sidebar-row:text-sidebar-muted-foreground/60 group-hover/sidebar-row:text-sidebar-muted-foreground/60"
+                      : "text-sidebar-muted-foreground/55",
+                  )}
+                >
                   <EnvironmentMachineIcon
                     aria-hidden
                     kind={props.environmentMachine}
-                    className={cn(
-                      "size-3 shrink-0 transition-colors",
-                      shouldRecede
-                        ? "text-sidebar-muted-foreground/40 group-focus-within/sidebar-row:text-sidebar-muted-foreground/60 group-hover/sidebar-row:text-sidebar-muted-foreground/60"
-                        : "text-sidebar-muted-foreground/55",
-                    )}
+                    className="size-3 shrink-0"
                   />
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 truncate transition-colors",
-                      shouldRecede
-                        ? "text-sidebar-muted-foreground/40 group-focus-within/sidebar-row:text-sidebar-muted-foreground/60 group-hover/sidebar-row:text-sidebar-muted-foreground/60"
-                        : "text-sidebar-muted-foreground/55",
-                    )}
-                  >
-                    {props.scratchMachineLabel}
-                  </span>
-                </>
-              ) : (
+                  <span className="min-w-0 flex-1 truncate">{props.scratchMachineLabel}</span>
+                </span>
+              ) : !props.projectDisplayName ? (
                 <span className="flex-1" />
-              )}
+              ) : null}
               {terminalStatusIcon}
               {prBadge}
               {diff ? (
@@ -2103,28 +2078,25 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   </span>
                 </span>
               ) : null}
-              <span
-                aria-hidden
-                className={cn(
-                  "pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1 transition-opacity",
-                  shouldRecede &&
-                    "opacity-55 group-focus-within/sidebar-row:opacity-95 group-hover/sidebar-row:opacity-95",
-                )}
-              >
-                {isRemote && !showsScratchMachine ? (
-                  <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
-                    <EnvironmentMachineIcon
-                      aria-hidden
-                      kind={props.environmentMachine}
-                      className="size-3.5"
-                    />
-                  </span>
-                ) : null}
-                <SidebarProviderStack
-                  thread={thread}
-                  providerEntryByInstanceId={props.providerEntryByInstanceId}
-                />
-              </span>
+              {isRemote && !showsScratchMachine ? (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "pointer-events-none ml-auto inline-flex max-w-[40%] shrink-0 items-center gap-1 text-sidebar-muted-foreground/70 transition-opacity",
+                    shouldRecede &&
+                      "opacity-55 group-focus-within/sidebar-row:opacity-95 group-hover/sidebar-row:opacity-95",
+                  )}
+                >
+                  <EnvironmentMachineIcon
+                    aria-hidden
+                    kind={props.environmentMachine}
+                    className="size-3 shrink-0"
+                  />
+                  {props.environmentLabel ? (
+                    <span className="truncate">{props.environmentLabel}</span>
+                  ) : null}
+                </span>
+              ) : null}
             </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
