@@ -2,7 +2,7 @@ import { AtomRegistry } from "effect/reactivity";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { upstreamNightlyAtom } from "./upstreamNightly";
+import { resolveAvailableUpstreamNightly, upstreamNightlyAtom } from "./upstreamNightly";
 
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", fetchMock);
@@ -125,5 +125,28 @@ describe("upstream nightly checks", () => {
       unmount();
       registry.dispose();
     }
+  });
+
+  it("resolves an available upstream update only when the fork baseline is behind", () => {
+    const latest = {
+      version: "0.1.1-nightly.20261018.3285",
+      publishedAt: "2026-10-18T02:00:00Z",
+      checkedAt: 1_760_000_000_000,
+    };
+
+    expect(resolveAvailableUpstreamNightly(null, latest)).toBeNull();
+    expect(resolveAvailableUpstreamNightly("0.1.1-nightly.20261018.3285", null)).toBeNull();
+    expect(resolveAvailableUpstreamNightly("0.1.1-nightly.20261018.3285", latest)).toBeNull();
+    expect(resolveAvailableUpstreamNightly("0.1.1-nightly.20261017.3272", latest)).toEqual({
+      includedVersion: "0.1.1-nightly.20261017.3272",
+      latestVersion: "0.1.1-nightly.20261018.3285",
+      publishedAt: latest.publishedAt,
+      checkedAt: latest.checkedAt,
+      reviewUrl:
+        "https://github.com/pingdotgg/t3code/compare/v0.1.1-nightly.20261017.3272...v0.1.1-nightly.20261018.3285",
+      mergePrompt: expect.stringContaining(
+        "published upstream nightly v0.1.1-nightly.20261018.3285 from pingdotgg/t3code",
+      ),
+    });
   });
 });

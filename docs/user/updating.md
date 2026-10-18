@@ -39,11 +39,10 @@ below.
 
 ## Check upstream T3 Code nightlies
 
-In KSG Code, open **Settings → General → About → Upstream T3 Code nightly**
-to compare the included upstream nightly with the newest published one.
-It checks when opened and hourly while the page stays open; use **Check upstream**
-to refresh sooner. **Review changes** opens the exact upstream comparison, and
-**Copy merge prompt** prepares a request you can give an agent.
+In KSG Code, **Settings → General → About → Upstream** compares the included
+upstream nightly with the newest published one, and a sidebar indicator appears
+when a newer nightly is available. **Review changes** opens the exact upstream
+comparison, and **Copy merge prompt** prepares a request you can give an agent.
 
 This checks for changes to merge, not an app update to install. Fork-only
 rebuilds do not mark upstream changes as merged. After those changes are merged
