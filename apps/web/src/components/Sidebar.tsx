@@ -33,6 +33,8 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   canSnooze,
   effectiveSnoozed,
+  hasQueuedTurnStart,
+  QUEUED_TURN_START_GRACE_MS,
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import { createInboxReturnTracker } from "@t3tools/client-runtime/state/thread-inbox";
@@ -835,89 +837,6 @@ function threadTimeTimestamp(thread: SidebarThreadSummary): string {
   return thread.latestUserMessageAt ?? thread.updatedAt;
 }
 
-// Subscribes to the minute tick for the snooze gate, so the queued-turn
-// grace window resolves without re-rendering the whole memoized row.
-function RowActionsCluster(props: {
-  thread: SidebarThreadSummary;
-  canOperate: boolean;
-  snoozeSupported: boolean;
-  settlementSupported: boolean;
-  hasUnsentDraft: boolean;
-  snoozeMenuOpen: boolean;
-  onSnoozeMenuOpenChange: (open: boolean) => void;
-  onDiscardDraft: (event: ReactMouseEvent) => void;
-  onSettle: (event: ReactMouseEvent) => void;
-  onActionSweepStart: (event: ReactPointerEvent) => void;
-  onSnooze: (preset: Pick<SnoozePreset, "snoozedUntil">) => void;
-  timestampFormat: TimestampFormat;
-}) {
-  const nowMinute = useNowMinute();
-  const showSnoozeButton =
-    props.canOperate &&
-    props.snoozeSupported &&
-    canSnooze(props.thread, { now: `${nowMinute}:00.000Z` });
-  // Closing here, not just masking, keeps the menu from reopening when the button returns.
-  if (props.snoozeMenuOpen && !showSnoozeButton) props.onSnoozeMenuOpenChange(false);
-  return (
-    <span
-      className={cn(
-        // focus-visible, not focus-within: a mouse click leaves
-        // the Settle button focused, and a plain focus-within
-        // would keep the controls pinned over the status label
-        // once the pointer moves away (e.g. after a failed
-        // settle) instead of cross-fading back.
-        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
-        props.snoozeMenuOpen && "pointer-events-auto static opacity-100",
-      )}
-    >
-      {props.hasUnsentDraft ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label="Discard draft"
-                onClick={props.onDiscardDraft}
-                className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
-              />
-            }
-          >
-            <XIcon className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipPopup side="top">Discard draft</TooltipPopup>
-        </Tooltip>
-      ) : null}
-      {showSnoozeButton ? (
-        <SnoozeMenuButton
-          open={props.snoozeMenuOpen}
-          onOpenChange={props.onSnoozeMenuOpenChange}
-          onSnooze={props.onSnooze}
-          timestampFormat={props.timestampFormat}
-        />
-      ) : null}
-      {props.settlementSupported ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label="Settle thread"
-                onClick={props.onSettle}
-                onPointerDown={props.onActionSweepStart}
-                className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
-              />
-            }
-          >
-            <CheckIcon className="size-3.5" />
-            Settle
-          </TooltipTrigger>
-          <TooltipPopup>Settle thread</TooltipPopup>
-        </Tooltip>
-      ) : null}
-    </span>
-  );
-}
-
 function JumpHintBadge(props: { label: string }) {
   return (
     <span
@@ -1141,10 +1060,7 @@ function SnoozeMenuButton(props: {
   timestampFormat: TimestampFormat;
 }) {
   const { open, onOpenChange, onSnooze, timestampFormat } = props;
-  const nowMinute = useNowMinute();
-  const presets = open
-    ? resolveSnoozePresets(new Date(`${nowMinute}:00.000Z`), timestampFormat)
-    : [];
+  const presets = open ? resolveSnoozePresets(new Date(), timestampFormat) : [];
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <Tooltip>
@@ -1942,9 +1858,38 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const handleSnoozePreset = (preset: Pick<SnoozePreset, "snoozedUntil">) => {
     onSnooze(threadRef, preset);
   };
-  // Kept in the row: it changes only on user interaction, while the snooze
-  // gate inside RowActionsCluster owns the minute-precise clock.
-  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
+  const [snoozeMenuOpenRaw, setSnoozeMenuOpen] = useState(false);
+  // The React Compiler caches render results on their inputs, so a clock read
+  // here would stay frozen until `thread` changes and a queued-turn gate would
+  // never reopen. The gate's clock is state, reset with the thread.
+  const [snoozeGateClock, setSnoozeGateClock] = useState(() => ({
+    thread,
+    now: new Date().toISOString(),
+  }));
+  if (snoozeGateClock.thread !== thread) {
+    setSnoozeGateClock({ thread, now: new Date().toISOString() });
+  }
+  const snoozeGateNow = snoozeGateClock.now;
+  const snoozeGateExpiryMs = hasQueuedTurnStart(thread, { now: snoozeGateNow })
+    ? Date.parse(thread.latestUserMessageAt ?? "") + QUEUED_TURN_START_GRACE_MS
+    : Number.NaN;
+  useEffect(() => {
+    // A gate still closed past its expiry is held by runtime status, not time,
+    // so no clock tick can open it.
+    if (!Number.isFinite(snoozeGateExpiryMs) || snoozeGateExpiryMs <= Date.parse(snoozeGateNow)) {
+      return;
+    }
+    const id = window.setTimeout(
+      () => setSnoozeGateClock({ thread, now: new Date().toISOString() }),
+      Math.min(Math.max(0, snoozeGateExpiryMs - Date.now()) + 50, 2_147_483_647),
+    );
+    return () => window.clearTimeout(id);
+  }, [snoozeGateExpiryMs, snoozeGateNow, thread]);
+  const showSnoozeButton =
+    canOperateThread && props.snoozeSupported && canSnooze(thread, { now: snoozeGateNow });
+  // Closing here, not just masking, keeps the menu from reopening when the button returns.
+  if (snoozeMenuOpenRaw && !showSnoozeButton) setSnoozeMenuOpen(false);
+  const snoozeMenuOpen = snoozeMenuOpenRaw && showSnoozeButton;
   const handlePrClick = (event: ReactMouseEvent<HTMLElement>, targetUrl?: string) => {
     const url = targetUrl ?? pr?.url ?? currentLinkedPr?.url;
     if (!url) return;
@@ -2445,21 +2390,63 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       <RelativeTimeLabel timestamp={threadTimeTimestamp(thread)} />
                     )}
                   </span>
-                  {props.settlementSupported || props.snoozeSupported || hasUnsentDraft ? (
-                    <RowActionsCluster
-                      thread={thread}
-                      canOperate={canOperateThread}
-                      snoozeSupported={props.snoozeSupported}
-                      settlementSupported={props.settlementSupported}
-                      hasUnsentDraft={hasUnsentDraft}
-                      snoozeMenuOpen={snoozeMenuOpen}
-                      onSnoozeMenuOpenChange={setSnoozeMenuOpen}
-                      onDiscardDraft={handleDiscardDraftClick}
-                      onSettle={handleSettleClick}
-                      onActionSweepStart={handleActionPointerDown}
-                      onSnooze={handleSnoozePreset}
-                      timestampFormat={props.timestampFormat}
-                    />
+                  {props.settlementSupported || showSnoozeButton || hasUnsentDraft ? (
+                    <span
+                      className={cn(
+                        // focus-visible, not focus-within: a mouse click leaves
+                        // the Settle button focused, and a plain focus-within
+                        // would keep the controls pinned over the status label
+                        // once the pointer moves away (e.g. after a failed
+                        // settle) instead of cross-fading back.
+                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
+                        snoozeMenuOpen && "pointer-events-auto static opacity-100",
+                      )}
+                    >
+                      {hasUnsentDraft ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                aria-label="Discard draft"
+                                onClick={handleDiscardDraftClick}
+                                className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                              />
+                            }
+                          >
+                            <XIcon className="size-3.5" />
+                          </TooltipTrigger>
+                          <TooltipPopup side="top">Discard draft</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                      {showSnoozeButton ? (
+                        <SnoozeMenuButton
+                          open={snoozeMenuOpen}
+                          onOpenChange={setSnoozeMenuOpen}
+                          onSnooze={handleSnoozePreset}
+                          timestampFormat={props.timestampFormat}
+                        />
+                      ) : null}
+                      {props.settlementSupported ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                aria-label="Settle thread"
+                                onClick={handleSettleClick}
+                                onPointerDown={handleActionPointerDown}
+                                className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                              />
+                            }
+                          >
+                            <CheckIcon className="size-3.5" />
+                            Settle
+                          </TooltipTrigger>
+                          <TooltipPopup>Settle thread</TooltipPopup>
+                        </Tooltip>
+                      ) : null}
+                    </span>
                   ) : null}
                 </span>
               )}
