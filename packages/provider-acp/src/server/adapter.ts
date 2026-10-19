@@ -238,6 +238,10 @@ export interface AcpAdapterV2Flavor {
     ChildProcessSpawner.ChildProcessSpawner | Crypto.Crypto | Scope.Scope
   >;
   readonly resolveModelId?: (selection: ModelSelection) => string | undefined;
+  readonly getModelContextWindow?: (
+    selection: ModelSelection,
+    session: AcpSessionRuntime.AcpSessionRuntimeStartResult,
+  ) => number | undefined;
   readonly applyModelSelection?: (input: {
     readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
     readonly startResult: AcpSessionRuntime.AcpSessionRuntimeStartResult;
@@ -6322,6 +6326,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             attachments: turnInput.message.attachments,
             resolveAttachmentPath: host.resolveAttachmentPath,
           });
+          const isNativeSlashCommand = turnInput.message.text.trimStart().startsWith("/");
           const text = includeInstructions
             ? t3AcpPromptWithInstructions({
                 prompt: messageText,
@@ -6374,7 +6379,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             });
           }
           // Agents join text blocks before parsing slash-command arguments.
-          if (includeInstructions && !messageText.trimStart().startsWith("/")) {
+          if (includeInstructions && !isNativeSlashCommand) {
             prompt.push({
               type: "text",
               text: buildRuntimeInstructions({
@@ -6825,6 +6830,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           providerSessionId: input.providerSessionId,
           providerSession,
           events: Stream.fromEffectRepeat(Queue.take(events)),
+          ...(flavor.getModelContextWindow === undefined
+            ? {}
+            : {
+                getModelContextWindow: (selection) => {
+                  const session = Ref.getUnsafe(activeSessionSetup);
+                  return session === null
+                    ? undefined
+                    : flavor.getModelContextWindow?.(selection, session);
+                },
+              }),
           ...(postSettleContinuationEnabled
             ? {
                 hasPendingBackgroundWork: Effect.gen(function* () {

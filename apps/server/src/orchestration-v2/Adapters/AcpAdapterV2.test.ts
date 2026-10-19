@@ -514,19 +514,19 @@ function rawProtocolRequestParam(
   return typeof params === "object" && params !== null ? Reflect.get(params, key) : undefined;
 }
 
-function rawProtocolPromptText(event: EffectAcpProtocol.AcpProtocolLogEvent): string {
+function rawProtocolPromptTextBlocks(
+  event: EffectAcpProtocol.AcpProtocolLogEvent,
+): Array<{ type: "text"; text: string }> {
   const prompt = rawProtocolRequestParam(event, "prompt");
-  if (!Array.isArray(prompt)) return "";
-  return prompt
-    .flatMap((block) =>
-      typeof block === "object" &&
-      block !== null &&
-      Reflect.get(block, "type") === "text" &&
-      typeof Reflect.get(block, "text") === "string"
-        ? [Reflect.get(block, "text") as string]
-        : [],
-    )
-    .join("\n");
+  if (!Array.isArray(prompt)) return [];
+  return prompt.flatMap((block) =>
+    typeof block === "object" &&
+    block !== null &&
+    Reflect.get(block, "type") === "text" &&
+    typeof Reflect.get(block, "text") === "string"
+      ? [{ type: "text" as const, text: Reflect.get(block, "text") as string }]
+      : [],
+  );
 }
 
 const pollProtocolMethods = (events: Queue.Queue<EffectAcpProtocol.AcpProtocolLogEvent>) =>
@@ -754,10 +754,14 @@ describe("AcpAdapterV2", () => {
         );
         const steers = requests.filter((event) => rawProtocolMethod(event) === "_t3/steer");
         assert.equal(steers.length, 2);
-        assert.deepEqual(steers.map(rawProtocolPromptText), [
-          "change direction",
-          "change direction",
-        ]);
+        assert.deepEqual(
+          steers.map((event) =>
+            rawProtocolPromptTextBlocks(event)
+              .map((block) => block.text)
+              .join("\n"),
+          ),
+          ["change direction", "change direction"],
+        );
         assert.deepEqual(
           steers.map((event) => rawProtocolRequestParam(event, "turnId")),
           [providerTurnId, providerTurnId],
@@ -1138,14 +1142,26 @@ describe("AcpAdapterV2", () => {
           if (method === undefined) continue;
           methods.push(method);
           if (method === "session/prompt") {
-            return { methods, prompt: rawProtocolPromptText(event) };
+            const promptBlocks = rawProtocolPromptTextBlocks(event);
+            return {
+              methods,
+              prompt: promptBlocks.map((block) => block.text).join("\n"),
+              textBlockCount: promptBlocks.length,
+            };
           }
         }
       });
 
       const command = yield* runTurn(0, defaultPolicy, "/compact");
       assert.equal(command.prompt, "/compact");
-      const firstDefault = yield* runTurn(1, defaultPolicy, "First default request.");
+      assert.notInclude(command.prompt, "<t3_code_instructions>");
+      assert.equal(command.textBlockCount, 1);
+      const whitespaceCommand = yield* runTurn(1, defaultPolicy, "  /repro-skill");
+      assert.equal(whitespaceCommand.prompt, "  /repro-skill");
+      assert.equal(whitespaceCommand.textBlockCount, 1);
+      assert.notInclude(whitespaceCommand.prompt, "<t3_code_instructions>");
+      const firstDefault = yield* runTurn(2, defaultPolicy, "First default request.");
+      assert.equal(firstDefault.textBlockCount, 2);
       assert.include(firstDefault.prompt, "T3 Code interaction mode: Default");
       assert.include(firstDefault.prompt, "T3 Code collaborative browser");
       assert.include(firstDefault.prompt, "T3 Code orchestration");
@@ -1155,29 +1171,29 @@ describe("AcpAdapterV2", () => {
         "Build should preserve the agent's advertised mode default",
       );
       assert.include(
-        (yield* runTurn(2, defaultPolicy, "Second default request.")).prompt,
+        (yield* runTurn(3, defaultPolicy, "Second default request.")).prompt,
         "Second default request.",
       );
 
       const planPolicy = policy("plan");
-      const firstPlan = yield* runTurn(3, planPolicy, "Plan this change.");
+      const firstPlan = yield* runTurn(4, planPolicy, "Plan this change.");
       assert.include(firstPlan.prompt, "T3 Code interaction mode: Plan");
       assert.include(firstPlan.methods, "session/set_config_option");
       assert.include(
-        (yield* runTurn(4, planPolicy, "Continue planning.")).prompt,
+        (yield* runTurn(5, planPolicy, "Continue planning.")).prompt,
         "Continue planning.",
       );
-      const restoredBuild = yield* runTurn(5, defaultPolicy, "Implement the change.");
+      const restoredBuild = yield* runTurn(6, defaultPolicy, "Implement the change.");
       assert.include(restoredBuild.prompt, "T3 Code interaction mode: Default");
       assert.include(
         restoredBuild.methods,
         "session/set_config_option",
         "Build should restore the native mode that T3 temporarily replaced for Plan",
       );
-      const modelCommand = yield* runTurn(6, planPolicy, "/model custom/model");
+      const modelCommand = yield* runTurn(7, planPolicy, "/model custom/model");
       assert.equal(modelCommand.prompt, "/model custom/model");
       assert.include(
-        (yield* runTurn(7, planPolicy, "Continue in Plan.")).prompt,
+        (yield* runTurn(8, planPolicy, "Continue in Plan.")).prompt,
         "T3 Code interaction mode: Plan",
         "A native command must not consume the pending mode instructions",
       );
