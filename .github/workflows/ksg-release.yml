@@ -1,7 +1,7 @@
 name: KSG Release
 
 # KSG Code fork (see AGENTS.md): publishes a nightly release of ksg/dev for
-# macOS arm64 and Linux x64. Each platform build reuses upstream's
+# macOS arm64, Linux x64 and Windows x64. Each platform build reuses upstream's
 # release-desktop.yml, so build changes arrive with each upstream sync.
 
 on:
@@ -152,9 +152,34 @@ jobs:
       clerk_cli_oauth_client_id: ${{ vars.KSG_CLERK_CLI_OAUTH_CLIENT_ID }}
       relay_url: ${{ vars.KSG_RELAY_URL }}
 
+  # Starts alongside the Linux job: the Windows desktop embeds the Linux CLI
+  # archive for its WSL backend and waits for that artifact inside the job.
+  desktop_win_x64:
+    name: Desktop Windows x64
+    needs: [preflight, build_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    secrets: inherit
+    with:
+      label: Windows x64
+      runner: windows-2025
+      platform: win
+      target: nsis
+      arch: x64
+      rust_target: x86_64-pc-windows-msvc
+      resource_key: win32-x64
+      cli_archive: true
+      version: ${{ needs.preflight.outputs.version }}
+      ref: ${{ needs.preflight.outputs.ref }}
+      release_channel: nightly
+      relay_client_tracing: false
+      clerk_publishable_key: ${{ vars.KSG_CLERK_PUBLISHABLE_KEY }}
+      clerk_jwt_template: ${{ vars.KSG_CLERK_JWT_TEMPLATE }}
+      clerk_cli_oauth_client_id: ${{ vars.KSG_CLERK_CLI_OAUTH_CLIENT_ID }}
+      relay_url: ${{ vars.KSG_RELAY_URL }}
+
   release:
     name: Publish GitHub release
-    needs: [preflight, desktop_mac_arm64, desktop_linux_x64]
+    needs: [preflight, desktop_mac_arm64, desktop_linux_x64, desktop_win_x64]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -196,6 +221,21 @@ jobs:
           set -euo pipefail
           sha256sum t3-*.tar.gz > SHA256SUMS
           cat SHA256SUMS
+      # The Windows build suffixes its per-arch manifest (nightly-win-x64.yml)
+      # so x64 and arm64 jobs cannot collide. electron-updater requests
+      # nightly.yml, and only x64 is built here, so there is nothing to merge.
+      - name: Name Windows updater manifest
+        working-directory: release-assets
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          manifests=(*-win-x64.yml)
+          if [[ ${#manifests[@]} -ne 1 ]]; then
+            echo "Expected one Windows manifest, found: ${manifests[*]:-none}" >&2
+            exit 1
+          fi
+          mv "${manifests[0]}" "${manifests[0]%-win-x64.yml}.yml"
+          ls -1 *.yml
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -204,7 +244,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          files=(release-assets/*.dmg release-assets/*.zip release-assets/*.AppImage release-assets/*.deb \
+          files=(release-assets/*.dmg release-assets/*.zip release-assets/*.AppImage release-assets/*.deb release-assets/*.exe \
             release-assets/*.blockmap release-assets/*.tar.gz release-assets/SHA256SUMS)
           for manifest in release-assets/*.yml; do
             [[ "$manifest" == */builder-debug.yml ]] || files+=("$manifest")
