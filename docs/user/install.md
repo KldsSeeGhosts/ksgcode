@@ -10,20 +10,16 @@ launch T3 Code and configure providers afterwards.
 
 ## Command line
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+KSG Code does not run an install script. Download the CLI archive for your
+platform from
+[KSG Code releases](https://github.com/KldsSeeGhosts/ksgcode/releases) and put
+the `t3` binary inside on your `PATH`, such as `~/.local/bin`. Archives are
+published for macOS (Apple silicon), Linux x64, and Windows x64 as
+`t3-<version>-<platform>-<arch>.tar.gz`, with a `.zip` on Windows. The
+`.tar.gz` archives are listed in the release's `SHA256SUMS` file.
 
-On Windows, in PowerShell:
-
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
-
-This installs the `t3` binary to `~/.local/bin`. If your shell reports `command not found`
-afterwards, that directory is not on your `PATH` yet; the installer prints the
-line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
-`T3CODE_VERSION` to pin an exact version.
+Upstream T3 Code's install scripts and `npx t3` install a different app that
+shares state with KSG Code; do not mix them.
 
 | Task                                             | Command                                                                 |
 | ------------------------------------------------ | ----------------------------------------------------------------------- |
@@ -42,18 +38,15 @@ If `t3` or `t3 start` reports an already running server, connect to that server
 instead. Stop it before starting a replacement, or use a different `--base-dir`
 for an independent server.
 
-To try T3 Code once without installing it, run `npx t3@latest` instead (needs
-Node.js for `npx`).
-
 ### Intel Macs
 
-There is no `t3` executable for Intel Macs (the desktop app is available). To
+There is no `t3` executable or desktop installer for Intel Macs. To
 run a server there, build it from source with Node.js 24 and `vp`
 ([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
 
 ```bash
-git clone https://github.com/pingdotgg/t3code
-cd t3code && vp i && vp run build:desktop
+git clone https://github.com/KldsSeeGhosts/ksgcode
+cd ksgcode && vp i && vp run build:desktop
 node apps/server/dist/bin.mjs
 ```
 
@@ -62,20 +55,13 @@ update it with `git pull` and a rebuild.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
-or use a package manager:
-
-| Platform           | Install                            |
-| ------------------ | ---------------------------------- |
-| Windows            | `winget install T3Tools.T3Code`    |
-| macOS              | `brew install --cask t3-code`      |
-| Debian, Ubuntu     | `sudo apt install ./T3-Code-*.deb` |
-| Arch Linux         | `yay -S t3code-bin`                |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`        |
-
-The `.deb` updates itself like the other desktop builds. It asks for your
-password to install each update. If your desktop has no password prompt, the
-update fails. Download the new `.deb` and install it the same way.
+Download a release from
+[KSG Code releases](https://github.com/KldsSeeGhosts/ksgcode/releases). Every
+release publishes desktop installers for macOS (Apple silicon), Linux x64, and
+Windows x64, and the installed apps update themselves from that feed. The
+Windows installer is not code-signed, so SmartScreen may ask you to confirm
+it. The macOS app is not notarized, so the first launch may need Finder's
+Open command.
 
 ### The `t3` command
 
