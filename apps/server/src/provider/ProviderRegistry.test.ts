@@ -512,12 +512,15 @@ it.layer(
                 account: null,
                 requiresOpenaiAuth: false,
               },
+              rateLimits: { failure: "Codex could not read usage (JSON-RPC -32600)." },
             }),
           ),
         );
 
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.auth.status, "unknown");
+        // Custom model providers such as CPA have no ChatGPT subscription limits to report.
+        assert.strictEqual(status.usageLimits?.unavailable?.reason, "unsupported");
       }),
     );
 
