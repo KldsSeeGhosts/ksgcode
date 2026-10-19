@@ -270,8 +270,11 @@ checks must never replace the KSG installation with an upstream artifact.
 ### Releases and macOS signing
 
 `.github/workflows/ksg-release.yml` publishes pushes to `ksg/dev`
-(except Markdown-only pushes), or manual dispatches. It builds macOS arm64
-and Linux x64 using upstream's reusable desktop workflow.
+(except Markdown-only pushes), or manual dispatches. It builds macOS arm64,
+Linux x64 and Windows x64 using upstream's reusable desktop workflow. The
+Windows build is an unsigned NSIS installer (the fork has no Azure Trusted
+Signing secrets) that embeds the Linux CLI archive for WSL; the release job
+renames its `nightly-win-x64.yml` manifest to `nightly.yml` for electron-updater.
 
 - Keep `KSG Release` and `Release desktop build` enabled in Actions. Other
   upstream workflows need upstream's runners and secrets and should stay disabled.
