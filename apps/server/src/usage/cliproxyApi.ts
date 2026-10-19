@@ -17,6 +17,7 @@ import { codexPlanLabel } from "../provider/CodexProvider.ts";
 import { codexRateLimitsToLimits } from "../provider/codexUsageLimits.ts";
 import { claudeUsageResponseToLimits } from "../provider/claudeUsageLimits.ts";
 import { makeUnavailableUsageLimits } from "@t3tools/provider-core/server/usageLimits";
+import { CpaAuthFiles, CpaQuotaSummary, cpaSummaryToAccounts } from "./cpaManager.ts";
 
 const AuthFile = Schema.Struct({
   id: Schema.String,
@@ -83,6 +84,8 @@ const CreditList = Schema.Struct({
 });
 
 const decodeAuthFiles = Schema.decodeUnknownEffect(AuthFiles);
+const decodeCpaSummary = Schema.decodeUnknownEffect(CpaQuotaSummary);
+const decodeCpaFiles = Schema.decodeUnknownEffect(CpaAuthFiles);
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeApiResponse = Schema.decodeUnknownEffect(ApiResponse);
 const decodeCreditList = Schema.decodeUnknownEffect(Schema.fromJsonString(CreditList));
@@ -194,6 +197,38 @@ export const makeCliproxyApi = Effect.gen(function* () {
   const authFiles = Effect.fn("CliproxyApi.authFiles")(function* (config: UsageLimitSourceConfig) {
     const response = yield* management(config, "auth-files");
     return (yield* decodeAuthFiles(response)).files;
+  });
+
+  const readManager = Effect.fn("CliproxyApi.readManager")(function* (
+    config: UsageLimitSourceConfig,
+  ) {
+    const raw = yield* management(config, "quota/summary");
+    const summary = yield* decodeCpaSummary(raw).pipe(
+      Effect.mapError(
+        () =>
+          new UsageLimitSourceError({
+            detail: "CPA Manager returned an unsupported quota summary.",
+          }),
+      ),
+    );
+    const files = yield* management(config, "auth-files").pipe(
+      Effect.flatMap(decodeCpaFiles),
+      Effect.result,
+    );
+    const result = yield* cpaSummaryToAccounts(
+      summary,
+      files._tag === "Success" ? files.success.files : [],
+    ).pipe(Effect.provideService(Crypto.Crypto, crypto));
+    return {
+      ...result,
+      ...(files._tag === "Failure"
+        ? {
+            error: [result.error, "Auth-file metadata could not be read from CPA Manager."]
+              .filter(Boolean)
+              .join(" "),
+          }
+        : {}),
+    };
   });
 
   const apiCall = Effect.fn("CliproxyApi.apiCall")(function* (
@@ -417,5 +452,5 @@ export const makeCliproxyApi = Effect.gen(function* () {
       ),
     );
   });
-  return { readAccounts, consume };
+  return { readAccounts, readManager, consume };
 });

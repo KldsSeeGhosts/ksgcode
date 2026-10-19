@@ -1,4 +1,8 @@
-import { type EnvironmentId, UsageLimitSourceId } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  type UsageLimitSourceConfig,
+  UsageLimitSourceId,
+} from "@t3tools/contracts";
 import { useState } from "react";
 
 import { useUpdateEnvironmentSettings } from "../../hooks/useSettings";
@@ -15,12 +19,13 @@ import {
 import { Input } from "../ui/input";
 import { SecretInput } from "./SecretInput";
 import { Label } from "../ui/label";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
 /**
  * Dots and dashes in the host are kept so `foo-bar.com` and `foo.bar.com` do
  * not collide; anything else (a port's colon, a path) is folded to a dash.
  */
-function sourceIdFromUrl(url: string): UsageLimitSourceId {
+function sourceIdFromUrl(url: string, kind: UsageLimitSourceConfig["kind"]): UsageLimitSourceId {
   let host = url;
   try {
     host = new URL(url).host;
@@ -29,7 +34,7 @@ function sourceIdFromUrl(url: string): UsageLimitSourceId {
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return UsageLimitSourceId.make(`cliproxy-${slug || "hub"}`);
+  return UsageLimitSourceId.make(`${kind}-${slug || "hub"}`);
 }
 
 /**
@@ -49,6 +54,7 @@ export function AddUsageLimitSourceDialog({
 }) {
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const [label, setLabel] = useState("");
+  const [kind, setKind] = useState<UsageLimitSourceConfig["kind"]>("cpa-manager");
   const [url, setUrl] = useState("");
   const [managementKey, setManagementKey] = useState("");
   const trimmedUrl = url.trim();
@@ -62,11 +68,11 @@ export function AddUsageLimitSourceDialog({
 
   const save = () => {
     if (!canSave) return;
-    const id = sourceIdFromUrl(trimmedUrl);
+    const id = sourceIdFromUrl(trimmedUrl, kind);
     updateSettings({
       usageLimitSources: {
         [id]: {
-          kind: "cliproxy",
+          kind,
           ...(label.trim() ? { label: label.trim() } : {}),
           url: trimmedUrl,
           managementKey: managementKey.trim(),
@@ -88,10 +94,10 @@ export function AddUsageLimitSourceDialog({
     >
       <DialogPopup className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add a CLIProxyAPI hub</DialogTitle>
+          <DialogTitle>Add a usage hub</DialogTitle>
           <DialogDescription>
-            Show the quota of every account the hub pools, next to the providers on{" "}
-            {environmentLabel}. The key stays on that server.
+            Show pooled account limits on {environmentLabel}. CPA Manager also lists every auth
+            file, including disabled accounts. The key stays on that server.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -103,17 +109,42 @@ export function AddUsageLimitSourceDialog({
             }}
           >
             <div className="grid gap-1.5">
+              <Label htmlFor="usage-source-kind">Hub type</Label>
+              <Select
+                value={kind}
+                onValueChange={(value) => {
+                  if (value) setKind(value);
+                }}
+              >
+                <SelectTrigger id="usage-source-kind">
+                  <SelectValue>
+                    {kind === "cpa-manager" ? "CPA Manager" : "CLIProxyAPI"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="cpa-manager">CPA Manager</SelectItem>
+                  <SelectItem value="cliproxy">CLIProxyAPI</SelectItem>
+                </SelectPopup>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
               <Label htmlFor="usage-source-url">Hub URL</Label>
               <Input
                 id="usage-source-url"
-                placeholder="https://hub.example.ts.net:8318"
+                placeholder={
+                  kind === "cpa-manager"
+                    ? "https://hub.example.ts.net"
+                    : "https://hub.example.ts.net:8318"
+                }
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 autoFocus
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="usage-source-key">Management key</Label>
+              <Label htmlFor="usage-source-key">
+                {kind === "cpa-manager" ? "Manager admin key" : "Management key"}
+              </Label>
               <SecretInput
                 id="usage-source-key"
                 value={managementKey}

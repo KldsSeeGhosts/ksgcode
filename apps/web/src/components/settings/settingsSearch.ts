@@ -645,7 +645,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Usage providers",
     to: "/settings/providers",
     searchTerms: [
-      "usage sources CLIProxyAPI CLI proxy hub quota subscription limits management key add remove",
+      "usage sources CPA Manager CLIProxyAPI CLI proxy hub auth files quota subscription limits management admin key add remove",
     ],
     providerSettingsOnly: true,
   },

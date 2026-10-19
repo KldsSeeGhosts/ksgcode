@@ -140,6 +140,26 @@ This connection supplies usage information; configure
 the provider separately to send agent requests through the hub. Remove the hub from the same
 settings section when you no longer need it.
 
+### CPA Manager
+
+In **Add hub**, choose **CPA Manager** and enter the manager's base URL and
+**admin key**, not an inference API key or the upstream proxy's management key.
+The selected environment must be able to reach that URL. The key stays in that
+environment's secret store.
+
+**Usage → Limits → Show accounts** lists auth filenames, plans, quota windows,
+and reset times. Disabled accounts and accounts without quota reporting remain
+visible, but disabled accounts do not contribute to pooled limits. Dashboard
+estimates and cached readings are identified. CPA keeps provider credentials and
+refreshes its own quota cache; refreshing Limits reads that cache without forcing
+new provider requests. Accounts that cannot be matched to inventory metadata keep
+CPA's masked labels and stay outside pooled totals until their routing status
+can be checked.
+
+This connection does not add CPA request statistics to Cost or Tokens, change
+account routing, or redeem reset credits. Remove it in **Usage providers** to
+disconnect without changing the manager.
+
 ## Subscription usage widget
 
 Add **Subscription usage** from your iOS or Android widget gallery to see remaining Codex and

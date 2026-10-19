@@ -20,6 +20,7 @@ export const ServerProviderUsageWindow = Schema.Struct({
   usedPercent: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
   resetsAt: Schema.optional(IsoDateTime),
   windowDurationMins: Schema.optional(NonNegativeInt),
+  estimated: Schema.optional(Schema.Boolean),
 });
 export type ServerProviderUsageWindow = typeof ServerProviderUsageWindow.Type;
 
@@ -69,6 +70,12 @@ export type ProviderUsageLimitsUpdate = typeof ProviderUsageLimitsUpdate.Type;
 export const UsageLimitSourceAccount = Schema.Struct({
   id: TrimmedNonEmptyString,
   driver: ProviderDriverKind,
+  label: Schema.optional(TrimmedNonEmptyString),
+  providerLabel: Schema.optional(TrimmedNonEmptyString),
+  fileName: Schema.optional(TrimmedNonEmptyString),
+  disabled: Schema.optional(Schema.Boolean),
+  synthetic: Schema.optional(Schema.Boolean),
+  notice: Schema.optional(TrimmedNonEmptyString),
   email: Schema.optional(TrimmedNonEmptyString),
   plan: Schema.optional(TrimmedNonEmptyString),
   workspaceId: Schema.optional(TrimmedNonEmptyString),
@@ -78,11 +85,12 @@ export type UsageLimitSourceAccount = typeof UsageLimitSourceAccount.Type;
 
 export const UsageLimitSourceSnapshot = Schema.Struct({
   id: UsageLimitSourceId,
-  kind: Schema.Literal("cliproxy"),
+  kind: Schema.Literals(["cliproxy", "cpa-manager"]),
   label: TrimmedNonEmptyString,
   checkedAt: IsoDateTime,
   accounts: ForwardCompatibleArray(UsageLimitSourceAccount),
   error: Schema.optional(TrimmedNonEmptyString),
+  stale: Schema.optional(Schema.Boolean),
 });
 export type UsageLimitSourceSnapshot = typeof UsageLimitSourceSnapshot.Type;
 

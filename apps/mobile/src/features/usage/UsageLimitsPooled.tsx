@@ -6,6 +6,7 @@ import {
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
+  collectCpaAccountGroups,
   cursorUsageWindowDetails,
   displayLimitWindows,
   formatResetsIn,
@@ -25,6 +26,7 @@ import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { environmentPresentations } from "../../state/presentation";
 import { ResetCredits } from "./UsageLimitsSection";
 import { usageProviderKind, useProviderColors } from "./usageProviders";
+import { CpaAccounts } from "./CpaAccounts";
 
 const DRIVER_LABEL: Partial<Record<string, string>> = {
   codex: "Codex",
@@ -247,6 +249,7 @@ export function UsageLimitsSection({
   const pools = collectLimitPools(collectLimitAccounts(selected), now);
   const notices = collectLimitNotices(selected);
   const externalLinks = collectExternalUsageLinks(selected);
+  const cpaGroups = collectCpaAccountGroups(selected);
   const colors = useProviderColors();
   const cursorPromptAt =
     Math.max(
@@ -259,7 +262,8 @@ export function UsageLimitsSection({
       notices.length === 0 &&
       failedLabels.length === 0 &&
       !cursorPrompt &&
-      externalLinks.length === 0 ? (
+      externalLinks.length === 0 &&
+      cpaGroups.length === 0 ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
           {selected.size === 0
             ? "Select an environment to see limits."
@@ -273,9 +277,11 @@ export function UsageLimitsSection({
             {index === cursorPromptAt ? cursorPrompt : null}
             <View className="gap-3">
               <View className="flex-row items-center gap-2 px-1">
-                <ProviderIcon provider={pool.driver} size={18} />
+                {usageProviderKind(pool.driver) ? (
+                  <ProviderIcon provider={pool.driver} size={18} />
+                ) : null}
                 <Text className="text-base font-t3-medium text-foreground">
-                  {DRIVER_LABEL[pool.driver] ?? pool.driver}
+                  {DRIVER_LABEL[pool.driver] ?? pool.accounts[0]?.providerLabel ?? pool.driver}
                 </Text>
               </View>
               {windows.map((window) => {
@@ -300,6 +306,7 @@ export function UsageLimitsSection({
         );
       })}
       {cursorPromptAt === pools.length ? cursorPrompt : null}
+      <CpaAccounts groups={cpaGroups} now={now} />
       {externalLinks.map((link) => (
         <View key={link.url} className="gap-3 rounded-xl border border-border-subtle p-4">
           <Text className="text-base font-t3-medium text-foreground">{link.label}</Text>
