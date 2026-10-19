@@ -1,8 +1,8 @@
 # KSG Code fork
 
 KSG Code is upstream [T3 Code](https://github.com/pingdotgg/t3code) plus the
-smallest set of patches that let it build for macOS arm64 and Linux x64 and
-update from this repository's releases. Everything else follows upstream:
+smallest set of patches that let it build for macOS arm64, Linux x64 and
+Windows x64 and update from this repository's releases. Everything else follows upstream:
 the `t3` CLI, `~/.t3`, the `T3CODE_*` variables, the `t3code://` scheme, the
 desktop app ID `com.t3tools.t3code`, and the Electron profile folder are
 unchanged, so KSG Code and T3 Code share state and cannot run side by side.
@@ -150,8 +150,8 @@ one-time Keychain prompt for `t3code Safe Storage`, which T3 Code created.
 `.github/workflows/ksg-release.yml` publishes a nightly release from every push
 to `ksg/dev` (Markdown-only pushes are skipped), or on demand from the Actions
 tab. It computes the version (see Versions), builds the JS bundle once, then
-reuses upstream's `release-desktop.yml` for macOS arm64 and Linux x64, so
-upstream's build fixes arrive with each sync. Every KSG Code install and fork
+reuses upstream's `release-desktop.yml` for macOS arm64, Linux x64 and
+Windows x64, so upstream's build fixes arrive with each sync. Every KSG Code install and fork
 `t3` CLI then offers the release as an update.
 
 One-time setup:
