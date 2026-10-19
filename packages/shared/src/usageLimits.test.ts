@@ -17,6 +17,7 @@ import {
   collectExternalUsageLinks,
   collectLimitNotices,
   collectLimitPools,
+  collectCpaAccountGroups,
   displayLimitWindows,
   elapsedShare,
   formatResetsIn,
@@ -160,6 +161,53 @@ describe("pools", () => {
     checkedAt,
   };
   const laptop = { entry: { target: { label: "Laptop" } } };
+
+  it("keeps every CPA auth entry visible while pooling only enabled readable accounts", () => {
+    const readable = {
+      id: "first",
+      driver: ProviderDriverKind.make("codex"),
+      label: "First account",
+      fileName: "first.json",
+      usageLimits: { checkedAt, windows: [window] },
+    };
+    const cpa = {
+      ...source,
+      kind: "cpa-manager" as const,
+      stale: true,
+      accounts: [
+        readable,
+        { ...readable, id: "disabled", disabled: true },
+        {
+          ...readable,
+          id: "failed",
+          usageLimits: {
+            checkedAt,
+            windows: [],
+            unavailable: { reason: "probeFailed" as const, message: "Quota unavailable." },
+          },
+        },
+      ],
+    };
+    const input = new Map([
+      [
+        EnvironmentId.make("env-a"),
+        { ...laptop, serverConfig: { providers: [], usageLimitSources: [cpa] } },
+      ],
+    ]);
+    expect(collectLimitAccounts(input).map((account) => account.displayName)).toEqual([
+      "First account",
+    ]);
+    expect(collectCpaAccountGroups(input)[0]?.source.accounts).toHaveLength(3);
+    expect(collectLimitNotices(input)).toEqual(["hub: Showing CPA's last cached quota reading."]);
+    expect(
+      collectProviderUsageLimits(
+        ProviderInstanceId.make("codex"),
+        [provider({})],
+        [cpa],
+        now,
+      )?.accounts.map((account) => account.id),
+    ).toEqual(["hub:first", "hub:failed"]);
+  });
 
   it("merges one account reported natively on two environments and by a hub into one entry", () => {
     const native = provider({
@@ -708,6 +756,47 @@ describe("pools", () => {
         (window) => window.id,
       ),
     ).toEqual(["weekly", "weekly:secondary"]);
+  });
+
+  it("does not pool Codex code-review allowances into the main allowance", () => {
+    const accounts: LimitAccount[] = ["first", "second"].map((key) => ({
+      key,
+      driver: ProviderDriverKind.make("codex"),
+      displayName: key,
+      email: undefined,
+      plan: undefined,
+      accentColor: undefined,
+      environments: [],
+      sourceLabel: "CPA",
+      redeem: null,
+      limits: {
+        checkedAt,
+        windows: [
+          { ...weekly, id: "weekly", usedPercent: 25 },
+          { ...weekly, id: "code-review-weekly", usedPercent: 90 },
+        ],
+      },
+    }));
+    const windows = collectLimitPools(accounts, now)[0]?.windows;
+    expect(windows?.map((item) => [item.id, item.usedPercent, item.members.length])).toEqual([
+      ["weekly", 25, 2],
+      ["weekly:code-review-weekly", 90, 2],
+    ]);
+    const exhaustedReview = {
+      ...accounts[0]!,
+      limits: {
+        checkedAt,
+        windows: [
+          { ...window, id: "five-hour", usedPercent: 25 },
+          { ...weekly, id: "weekly", usedPercent: 25 },
+          { ...weekly, id: "code-review-weekly", usedPercent: 100 },
+        ],
+      },
+    };
+    expect(
+      collectLimitPools([exhaustedReview], now)[0]?.windows.find((item) => item.kind === "session")
+        ?.usedPercent,
+    ).toBe(25);
   });
 
   it("pools windows by id across accounts and orders resets by when they land", () => {

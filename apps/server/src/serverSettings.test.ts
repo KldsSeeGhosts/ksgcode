@@ -1493,9 +1493,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettings())),
   );
 
-  it.effect(
-    "uses the same secret lifecycle for provider config, environment, host tokens, and quota keys",
-    () =>
+  it.effect.each(["cliproxy", "cpa-manager"] as const)(
+    "uses the same secret lifecycle for provider config, environment, host tokens, and %s quota keys",
+    (kind) =>
       Effect.gen(function* () {
         const service = yield* ServerSettingsModule.ServerSettingsService;
         const config = yield* ServerConfig.ServerConfig;
@@ -1520,7 +1520,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
           usageLimitSources: {
             [UsageLimitSourceId.make("hub")]: {
-              kind: "cliproxy",
+              kind,
               url: "https://hub.example.test",
               managementKey: "quota-secret",
               enabled: true,

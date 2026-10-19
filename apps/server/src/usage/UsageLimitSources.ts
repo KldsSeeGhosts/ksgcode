@@ -66,12 +66,16 @@ export const make = Effect.gen(function* () {
     if (config.managementKey.length === 0) {
       return { ...base, accounts: [], error: "No management key configured." };
     }
-    const accounts = yield* api.readAccounts(config).pipe(Effect.result);
-    if (accounts._tag === "Failure") {
-      yield* Effect.logDebug("usage limit source read failed", { id, cause: accounts.failure });
-      return { ...base, accounts: [], error: accounts.failure.detail };
+    const result = yield* (
+      config.kind === "cpa-manager"
+        ? api.readManager(config)
+        : api.readAccounts(config).pipe(Effect.map((accounts) => ({ accounts })))
+    ).pipe(Effect.result);
+    if (result._tag === "Failure") {
+      yield* Effect.logDebug("usage limit source read failed", { id, cause: result.failure });
+      return { ...base, accounts: [], error: result.failure.detail };
     }
-    return { ...base, accounts: accounts.success };
+    return { ...base, ...result.success };
   });
 
   const publish = (next: ReadonlyArray<UsageLimitSourceSnapshot>) =>
@@ -113,6 +117,11 @@ export const make = Effect.gen(function* () {
       if (!config?.enabled || !config.managementKey) {
         return yield* new UsageLimitSourceError({
           detail: "The usage limit source is missing or disabled.",
+        });
+      }
+      if (config.kind !== "cliproxy") {
+        return yield* new UsageLimitSourceError({
+          detail: "This usage source does not support reset credits.",
         });
       }
       const result = yield* api.consume(config, input.accountId, input.creditId);

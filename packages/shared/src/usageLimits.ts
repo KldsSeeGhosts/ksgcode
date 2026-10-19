@@ -154,6 +154,7 @@ export interface LimitAccount {
   readonly email: string | undefined;
   readonly plan: string | undefined;
   readonly accentColor: string | undefined;
+  readonly providerLabel?: string | undefined;
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly label: string;
@@ -230,7 +231,9 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       ...(presentation.serverConfig?.providers ?? [])
         .filter((provider) => provider.enabled)
         .map(nativeReport),
-      ...(presentation.serverConfig?.usageLimitSources ?? []).flatMap((source) => source.accounts),
+      ...(presentation.serverConfig?.usageLimitSources ?? []).flatMap((source) =>
+        source.accounts.filter((account) => !account.disabled),
+      ),
     ]),
   );
   for (const [environmentId, presentation] of presentations) {
@@ -258,12 +261,14 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         ? `${presentation.entry.target.label} · ${source.label}`
         : source.label;
       for (const account of source.accounts) {
+        if (account.disabled) continue;
         if (limitsNotice(account.usageLimits) !== null) continue;
         const key = `${source.id}:${account.id}${account.workspaceId ? `:${account.workspaceId}` : ""}`;
         merge(resolveKey(account) ?? key, {
           key,
           driver: account.driver,
-          displayName: account.email ? null : account.id.replace(/\.json$/i, ""),
+          displayName: account.email ? null : (account.label ?? account.id.replace(/\.json$/i, "")),
+          providerLabel: account.providerLabel,
           email: account.email,
           plan: account.plan,
           accentColor: undefined,
@@ -304,6 +309,11 @@ export function collectLimitNotices(presentations: LimitPresentations): readonly
         notices.push(`${label(environmentLabel, source.label)}: ${source.error}`);
       } else if (source.accounts.length === 0) {
         notices.push(`${label(environmentLabel, source.label)}: No accounts reported.`);
+      }
+      if (source.stale) {
+        notices.push(
+          `${label(environmentLabel, source.label)}: Showing CPA's last cached quota reading.`,
+        );
       }
     }
   }
@@ -409,19 +419,31 @@ function accountSortName(account: LimitAccount): string {
  * window as `primary`, other plans as `secondary`. Its windows pool by kind;
  * other drivers' ids name distinct allowances.
  */
+const CODEX_MAIN_WINDOW_IDS = new Set([
+  "primary",
+  "secondary",
+  "five-hour",
+  "five_hour",
+  "weekly",
+  "monthly",
+]);
+
 function poolKey(driver: ServerProvider["driver"], window: ServerProviderUsageWindow): string {
-  return driver === "codex" ? window.kind : `${window.kind}:${window.id}`;
+  return driver === "codex" && CODEX_MAIN_WINDOW_IDS.has(window.id)
+    ? window.kind
+    : `${window.kind}:${window.id}`;
 }
 
 function poolMember(account: LimitAccount, reported: ServerProviderUsageWindow, now: number) {
   const spentWeekly =
-    reported.kind === "session"
+    reported.kind === "session" &&
+    (account.driver !== "codex" || poolKey(account.driver, reported) === "session")
       ? account.limits.windows.find(
           (window) =>
             window.usedPercent >= 100 &&
             (account.driver === "claudeAgent"
               ? window.id === "seven_day"
-              : account.driver === "codex" && window.kind === "weekly"),
+              : account.driver === "codex" && poolKey(account.driver, window) === "weekly"),
         )
       : undefined;
   if (!spentWeekly) return { account, window: reported, refillPercent: reported.usedPercent };
@@ -596,7 +618,7 @@ export function hasProviderUsageLimits(
     providersWithLimits(providers).some((provider) => provider.driver === driver) ||
     sources.some(
       (source) =>
-        source.accounts.some((account) => account.driver === driver) ||
+        source.accounts.some((account) => !account.disabled && account.driver === driver) ||
         (source.error !== undefined && source.accounts.length === 0),
     )
   );
@@ -611,7 +633,9 @@ export function sameUsageLimitCommandCoverage(
       sources.flatMap((source) =>
         source.error !== undefined && source.accounts.length === 0
           ? ["*"]
-          : source.accounts.map((account) => String(account.driver)),
+          : source.accounts
+              .filter((account) => !account.disabled)
+              .map((account) => String(account.driver)),
       ),
     );
   const before = coverage(previous);
@@ -658,7 +682,7 @@ export function collectProviderUsageLimits(
   );
   const resolveKey = accountKeyResolver([
     ...providers.filter((provider) => provider.enabled).map(nativeReport),
-    ...sources.flatMap((source) => source.accounts),
+    ...sources.flatMap((source) => source.accounts.filter((account) => !account.disabled)),
   ]);
   const nativeAccounts = new Set(
     native.flatMap((provider) => {
@@ -715,15 +739,17 @@ export function collectProviderUsageLimits(
     });
   }
   for (const source of sources) {
-    const matching = source.accounts.filter((account) => account.driver === selected.driver);
+    const matching = source.accounts.filter(
+      (account) => !account.disabled && account.driver === selected.driver,
+    );
     for (const account of matching) {
       const key = resolveKey(account);
       if (key && nativeAccounts.has(key)) continue;
       accounts.push({
         id: `${source.id}:${account.id}`,
         driver: account.driver,
-        label: `${source.label} · ${account.id}`,
-        sourceLabel: "CLI Proxy",
+        label: `${source.label} · ${account.label ?? account.id}`,
+        sourceLabel: source.kind === "cpa-manager" ? "CPA Manager" : "CLI Proxy",
         ...(account.usageLimits.resetCredits?.nextCreditId
           ? {
               resetCreditInput: {
@@ -737,10 +763,29 @@ export function collectProviderUsageLimits(
         ...(account.email ? { email: account.email } : {}),
         limits: account.usageLimits,
       });
+      if (account.notice) notices.push(`${source.label}: ${account.notice}`);
     }
     if (source.error && (matching.length > 0 || source.accounts.length === 0)) {
       notices.push(`${source.label}: ${source.error}`);
     }
+    if (source.stale && matching.length > 0) {
+      notices.push(`${source.label}: Showing CPA's last cached quota reading.`);
+    }
   }
   return { createdAt: DateTime.formatIso(DateTime.makeUnsafe(now)), accounts, notices };
+}
+
+export function collectCpaAccountGroups(presentations: LimitPresentations) {
+  return [...presentations].flatMap(([environmentId, presentation]) =>
+    (presentation.serverConfig?.usageLimitSources ?? [])
+      .filter((source) => source.kind === "cpa-manager")
+      .map((source) => ({
+        key: `${environmentId}:${source.id}`,
+        label:
+          presentations.size > 1
+            ? `${presentation.entry.target.label} · ${source.label}`
+            : source.label,
+        source,
+      })),
+  );
 }
