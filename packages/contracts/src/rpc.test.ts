@@ -8,15 +8,19 @@ import { WS_METHODS, WsRpcGroup, WsSubscribeServerConfigRpc } from "./rpc.ts";
 describe("subscribeServerConfig payload compatibility", () => {
   it("is accepted by a server whose schema predates the field", () => {
     const oldServerPayload = Schema.Struct({});
-    const decoded = Schema.decodeExit(oldServerPayload)({ environmentThemes: true });
+    const decoded = Schema.decodeExit(oldServerPayload)({
+      environmentThemes: true,
+      cpaManagerUsageLimits: true,
+    });
     expect(Exit.isSuccess(decoded)).toBe(true);
   });
 
   it("is carried by a server that declares it", () => {
     const decoded = Schema.decodeSync(WsSubscribeServerConfigRpc.payloadSchema)({
       environmentThemes: true,
+      cpaManagerUsageLimits: true,
     });
-    expect(decoded).toEqual({ environmentThemes: true });
+    expect(decoded).toEqual({ environmentThemes: true, cpaManagerUsageLimits: true });
   });
 
   it("stays optional, so a client that never sends it still subscribes", () => {

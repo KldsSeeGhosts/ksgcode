@@ -297,6 +297,11 @@ describe("RpcSessionFactory", () => {
 
       expect(socket.url).toBe(PREPARED.socketUrl);
       socket.open();
+      const subscription = yield* awaitRequest(socket, 0);
+      expect(subscription).toMatchObject({
+        tag: WS_METHODS.subscribeServerConfig,
+        payload: { cpaManagerUsageLimits: true },
+      });
       yield* completeInitialConfig(socket);
       yield* Fiber.join(readyFiber);
 

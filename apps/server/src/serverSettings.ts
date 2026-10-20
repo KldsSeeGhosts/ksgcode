@@ -128,12 +128,23 @@ const normalizeServerSettings = (
     ),
   );
 
-export function redactServerSettingsForClient(settings: ServerSettings): ServerSettings {
-  return mapSettingsSecrets(settings, (secret) =>
+export function redactServerSettingsForClient(
+  settings: ServerSettings,
+  cpaManagerUsageLimits = true,
+): ServerSettings {
+  const redacted = mapSettingsSecrets(settings, (secret) =>
     secret.sensitive
       ? { value: "", redacted: secret.redacted || secret.value.length > 0 }
       : { value: secret.value, redacted: false },
   );
+  if (cpaManagerUsageLimits) return redacted;
+  // Keep stored sources intact while projecting only kinds the client can decode.
+  return {
+    ...redacted,
+    usageLimitSources: Object.fromEntries(
+      Object.entries(redacted.usageLimitSources).filter(([, source]) => source.kind === "cliproxy"),
+    ),
+  };
 }
 
 export function applyProviderInstanceMutation(
