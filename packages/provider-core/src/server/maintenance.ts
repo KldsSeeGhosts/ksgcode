@@ -16,6 +16,10 @@ export interface ProviderMaintenanceCapabilities {
     readonly cacheKey: string;
     readonly read: Effect.Effect<string | null>;
   };
+  /**
+   * Deferred until update checks are enabled; `null` falls back to npm.
+   */
+  readonly lookupLatestVersion?: Effect.Effect<string | null>;
   /** Compare native release revisions when the provider does not use plain semver. */
   readonly compareVersions?: (current: string, latest: string) => number;
   /**
