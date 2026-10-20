@@ -17,7 +17,8 @@ export interface ProviderMaintenanceCapabilities {
     readonly read: Effect.Effect<string | null>;
   };
   /**
-   * Deferred until update checks are enabled; `null` falls back to npm.
+   * Deferred until update checks are enabled; `null` falls back to
+   * `latestVersion`, then npm.
    */
   readonly lookupLatestVersion?: Effect.Effect<string | null>;
   /** Compare native release revisions when the provider does not use plain semver. */
