@@ -651,6 +651,7 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
         expect(yield* isLink(cliLink)).toBe(false);
 
         yield* fs.makeDirectory(cliSkills, { recursive: true });
+        yield* fs.makeDirectory(path.dirname(cliLink), { recursive: true });
         yield* fs.symlink(path.join(temporaryDirectory, "elsewhere"), cliLink);
         yield* fs.remove(configLink);
         yield* fs.makeDirectory(path.join(configLink, "own-skill"), { recursive: true });
@@ -659,7 +660,7 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
         expect(yield* fs.exists(path.join(configLink, "own-skill"))).toBe(true);
         expect((yield* fs.stat(configLink)).type).toBe("Directory");
 
-        yield* fs.remove(cliSkills);
+        yield* fs.remove(cliSkills, { recursive: true });
         yield* prepareAntigravityProfile({ profileDirectory, userHome });
         expect(yield* isLink(cliLink)).toBe(false);
       }),
