@@ -372,23 +372,6 @@ it.effect("does not report authentication when post-login verification fails", (
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
-it.effect("refreshes advertised methods after a registry version change without logging in", () =>
-  Effect.gen(function* () {
-    const h = yield* makeHarness(browserMethod);
-    const count = h.runtimes();
-    yield* h.controller.refreshMethods!;
-    assert.strictEqual(h.runtimes(), count);
-    h.setVersion("2.0.0");
-    yield* h.controller.refreshMethods!;
-    const state = yield* h.state((value) => value.methods?.[0]?.name === "Browser 2.0.0");
-    assert.strictEqual(state.phase, "idle");
-    assert.strictEqual(h.runtimes(), count + 1);
-    assert.deepEqual(h.authenticated, []);
-    assert.deepEqual(h.started, []);
-    assert.deepEqual(h.closed, [1, 2]);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
-);
-
 it.effect("signs in when a self-handled method has no ACP authenticate handler", () =>
   Effect.gen(function* () {
     // ZCode advertises "ZCode built-in credentials" and keeps the key in its

@@ -161,7 +161,7 @@ jobs:
     secrets: inherit
     with:
       label: Windows x64
-      runner: windows-2025
+      runner: ubuntu-24.04
       platform: win
       target: nsis
       arch: x64
