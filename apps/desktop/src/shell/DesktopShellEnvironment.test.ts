@@ -170,6 +170,24 @@ describe("DesktopShellEnvironment", () => {
     }),
   );
 
+  it.effect("hydrates a missing CPA_API_KEY without overriding an inherited one", () =>
+    Effect.gen(function* () {
+      const missing: NodeJS.ProcessEnv = { SHELL: "/bin/zsh", PATH: "/usr/bin" };
+      const inherited: NodeJS.ProcessEnv = {
+        SHELL: "/bin/zsh",
+        PATH: "/usr/bin",
+        CPA_API_KEY: "from-launchd",
+      };
+      const handler = () => envOutput({ PATH: "/usr/bin", CPA_API_KEY: "from-shell" });
+
+      yield* runShellEnvironment({ env: missing, platform: "darwin", handler });
+      yield* runShellEnvironment({ env: inherited, platform: "darwin", handler });
+
+      assert.equal(missing.CPA_API_KEY, "from-shell");
+      assert.equal(inherited.CPA_API_KEY, "from-launchd");
+    }),
+  );
+
   it.effect("does not mix login-shell locale categories into an inherited locale", () =>
     Effect.gen(function* () {
       const env: NodeJS.ProcessEnv = {
