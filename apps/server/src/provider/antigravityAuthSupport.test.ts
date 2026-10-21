@@ -21,6 +21,7 @@ import {
   ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE,
   type AntigravityAuthConfig,
   type AntigravityProfile,
+  antigravityAuthConfigIssue,
   buildAntigravityAcpSpawnInput,
   isAntigravitySignInRequiredError,
   makeAntigravityStderrHandler,
@@ -118,6 +119,8 @@ describe("Antigravity process environment", () => {
       apiKey: "gemini-secret",
       gcpProject: "proj",
       gcpLocation: "us-central1",
+      gatewayUrl: "",
+      gatewayModels: "",
     });
     expect(geminiKey.GEMINI_API_KEY).toBe("gemini-secret");
     expect(geminiKey.GOOGLE_API_KEY).toBeUndefined();
@@ -128,6 +131,8 @@ describe("Antigravity process environment", () => {
       apiKey: "vertex-secret",
       gcpProject: "",
       gcpLocation: "",
+      gatewayUrl: "",
+      gatewayModels: "",
     });
     expect(vertexKey.GOOGLE_API_KEY).toBe("vertex-secret");
     expect(vertexKey.GEMINI_API_KEY).toBeUndefined();
@@ -137,9 +142,49 @@ describe("Antigravity process environment", () => {
       apiKey: "ignored",
       gcpProject: "proj",
       gcpLocation: "us-central1",
+      gatewayUrl: "",
+      gatewayModels: "",
     });
     expect(business.GEMINI_API_KEY).toBeUndefined();
     expect(business.GOOGLE_API_KEY).toBeUndefined();
+
+    const gateway =
+      buildAntigravityAcpSpawnInput({
+        installation: { executablePath: "/release/acp", harnessPath: "/release/harness" },
+        profile,
+        cwd: "/project",
+        baseEnv: { ...baseEnv, AGY_LLM_GATEWAY_URL: "http://ambient", GEMINI_API_KEY: "ambient" },
+        auth: {
+          authMethod: "gateway",
+          apiKey: "gateway-secret",
+          gcpProject: "",
+          gcpLocation: "",
+          gatewayUrl: "http://127.0.0.1:8317",
+          gatewayModels: "gemini-4-argon, gemini-3.8-flash",
+        },
+      }).env ?? {};
+    expect(gateway.AGY_ACP_ENABLE_GATEWAY_AUTH).toBe("1");
+    expect(gateway.AGY_LLM_GATEWAY_URL).toBe("http://127.0.0.1:8317");
+    expect(gateway.AGY_LLM_GATEWAY_API_KEY).toBe("gateway-secret");
+    expect(gateway.AGY_LLM_GATEWAY_MODELS).toBe("gemini-4-argon, gemini-3.8-flash");
+    expect(gateway.GEMINI_API_KEY).toBeUndefined();
+    expect(gateway.GOOGLE_API_KEY).toBeUndefined();
+  });
+
+  it("requires an http gateway URL for gateway sign-in", () => {
+    const gateway = (gatewayUrl: string) =>
+      antigravityAuthConfigIssue({
+        authMethod: "gateway",
+        apiKey: "",
+        gcpProject: "",
+        gcpLocation: "",
+        gatewayUrl,
+        gatewayModels: "",
+      });
+    expect(gateway("http://127.0.0.1:8317")).toBeNull();
+    expect(gateway("https://gateway.example")).toBeNull();
+    expect(gateway("")).toContain("gateway URL");
+    expect(gateway("file:///etc/passwd")).toContain("gateway URL");
   });
 
   it("isolates TEMP and TMP to the profile directory on Windows", () => {
@@ -593,13 +638,19 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
         const configLink = path.join(profileDirectory, "config", "skills");
         const cliLink = path.join(profileDirectory, "antigravity-cli", "skills");
         expect(yield* fs.readLink(configLink)).toBe(configSkills);
-        expect(yield* fs.readLink(cliLink)).toBe(cliSkills);
         expect(yield* fs.exists(path.join(configLink, "review"))).toBe(true);
         expect(yield* fs.exists(path.join(profileDirectory, "config", "mcp_config.json"))).toBe(
           false,
         );
+        const isLink = (link: string) =>
+          fs.readLink(link).pipe(
+            Effect.as(true),
+            Effect.orElseSucceed(() => false),
+          );
+        // A missing user directory gets no dangling link.
+        expect(yield* isLink(cliLink)).toBe(false);
 
-        yield* fs.remove(cliLink);
+        yield* fs.makeDirectory(cliSkills, { recursive: true });
         yield* fs.symlink(path.join(temporaryDirectory, "elsewhere"), cliLink);
         yield* fs.remove(configLink);
         yield* fs.makeDirectory(path.join(configLink, "own-skill"), { recursive: true });
@@ -607,6 +658,10 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
         expect(yield* fs.readLink(cliLink)).toBe(cliSkills);
         expect(yield* fs.exists(path.join(configLink, "own-skill"))).toBe(true);
         expect((yield* fs.stat(configLink)).type).toBe("Directory");
+
+        yield* fs.remove(cliSkills);
+        yield* prepareAntigravityProfile({ profileDirectory, userHome });
+        expect(yield* isLink(cliLink)).toBe(false);
       }),
   );
 
@@ -622,6 +677,8 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
           apiKey: "vertex-secret",
           gcpProject: "proj",
           gcpLocation: "us-central1",
+          gatewayUrl: "",
+          gatewayModels: "",
         },
       });
       const settingsPath = path.join(profile.acpDirectory, "settings.json");

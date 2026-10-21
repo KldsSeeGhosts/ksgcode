@@ -214,6 +214,41 @@ describe("Antigravity model catalog", () => {
       "gemini-pro-agent",
     );
   });
+
+  it("keeps combined IDs when the runtime splits model family and thinking level", () => {
+    const models = buildAntigravityModelsFromSession({
+      configOptions: [
+        {
+          ...modelConfig,
+          currentValue: "gemini-3.8-flash",
+          options: [{ value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" }],
+        },
+        {
+          id: "thinking_level",
+          name: "Thinking Level",
+          category: "thought_level",
+          type: "select",
+          currentValue: "medium",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "medium", name: "Medium" },
+          ],
+        },
+      ],
+      models: {
+        currentModelId: "gemini-3.8-flash-medium",
+        availableModels: [
+          { modelId: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)" },
+          { modelId: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" },
+        ],
+      },
+    });
+    expect(models.map((model) => [model.slug, model.name])).toEqual([
+      ["gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"],
+      ["gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"],
+    ]);
+    expect(models.find((model) => model.isDefault)?.slug).toBe("gemini-3.8-flash-medium");
+  });
 });
 
 it.layer(layerTest)("Antigravity provider snapshots", (it) => {
