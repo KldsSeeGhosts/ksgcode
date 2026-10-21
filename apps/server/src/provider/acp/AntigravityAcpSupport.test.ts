@@ -29,19 +29,65 @@ const modelConfig = {
 } satisfies EffectAcpSchema.SessionConfigOption;
 
 function makeModelRuntime(
-  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> = [modelConfig],
+  initialConfigOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption> = [modelConfig],
   failure?: EffectAcpErrors.AcpError,
 ) {
+  let configOptions = initialConfigOptions;
   const selections: string[] = [];
+  const levels: string[] = [];
+  const select = (configId: string, value: string) => {
+    configOptions = configOptions.map((option) =>
+      option.id === configId && option.type === "select"
+        ? { ...option, currentValue: value }
+        : option,
+    );
+  };
   const setModel = Effect.fn("AntigravityAcpSupportTest.setModel")(function* (model: string) {
     if (failure) return yield* failure;
     selections.push(model);
+    select("model", model);
   });
+  const setConfigOption = (configId: string, value: string | boolean) =>
+    Effect.sync(() => {
+      levels.push(String(value));
+      select(configId, String(value));
+      return { configOptions };
+    });
   return {
-    runtime: { getConfigOptions: Effect.succeed(configOptions), setModel },
+    runtime: {
+      getConfigOptions: Effect.sync(() => configOptions),
+      setModel,
+      setConfigOption,
+    },
     selections,
+    levels,
   };
 }
+
+const familyConfig = {
+  id: "model",
+  name: "Model",
+  category: "model",
+  type: "select",
+  currentValue: "gemini-3.8-flash",
+  options: [
+    { value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+    { value: "gemini-3.1-pro", name: "Gemini 3.1 Pro" },
+  ],
+} satisfies EffectAcpSchema.SessionConfigOption;
+
+const thinkingConfig = {
+  id: "thinking_level",
+  name: "Thinking Level",
+  category: "thought_level",
+  type: "select",
+  currentValue: "high",
+  options: [
+    { value: "low", name: "Low" },
+    { value: "medium", name: "Medium" },
+    { value: "high", name: "High" },
+  ],
+} satisfies EffectAcpSchema.SessionConfigOption;
 
 describe("applyAntigravityAcpModelSelection", () => {
   it.effect("restores the saved model instead of the cold-resume default", () =>
@@ -134,6 +180,51 @@ describe("applyAntigravityAcpModelSelection", () => {
 
       expect(model).toBe("gemini-saved");
       expect(selections).toEqual(["gemini-saved"]);
+    }),
+  );
+
+  it.effect("selects a combined ID as a model family and thinking level", () =>
+    Effect.gen(function* () {
+      const { runtime, selections, levels } = makeModelRuntime([familyConfig, thinkingConfig]);
+      const model = yield* applyAntigravityAcpModelSelection({
+        runtime,
+        model: "gemini-3.1-pro-low",
+        mapError: (cause) => cause,
+      });
+
+      expect(model).toBe("gemini-3.1-pro-low");
+      expect(selections).toEqual(["gemini-3.1-pro"]);
+      expect(levels).toEqual(["low"]);
+    }),
+  );
+
+  it.effect("reports the combined current model for the native default", () =>
+    Effect.gen(function* () {
+      const { runtime, selections, levels } = makeModelRuntime([familyConfig, thinkingConfig]);
+      const model = yield* applyAntigravityAcpModelSelection({
+        runtime,
+        model: ANTIGRAVITY_DEFAULT_MODEL,
+        defaultModel: "gemini-3.8-flash-high",
+        mapError: (cause) => cause,
+      });
+
+      expect(model).toBe("gemini-3.8-flash-high");
+      expect(selections).toEqual([]);
+      expect(levels).toEqual([]);
+    }),
+  );
+
+  it.effect("rejects a thinking level the family does not offer", () =>
+    Effect.gen(function* () {
+      const { runtime, levels } = makeModelRuntime([familyConfig, thinkingConfig]);
+      const error = yield* applyAntigravityAcpModelSelection({
+        runtime,
+        model: "gemini-3.8-flash-max",
+        mapError: (cause) => cause,
+      }).pipe(Effect.flip);
+
+      expect(error).toMatchObject({ _tag: "AcpRequestError", code: -32602 });
+      expect(levels).toEqual([]);
     }),
   );
 });

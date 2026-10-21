@@ -92,26 +92,65 @@ export function antigravityPermissionMode(runtimeMode: RuntimeMode): string {
   }
 }
 
-function antigravityModelOptions(
-  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
+type SessionConfigOptions = ReadonlyArray<EffectAcpSchema.SessionConfigOption>;
+
+function selectConfig(
+  configOptions: SessionConfigOptions,
+  matches: (option: EffectAcpSchema.SessionConfigOption) => boolean,
 ) {
-  const model = configOptions.find((option) => option.id === "model");
-  if (model?.type !== "select") return [];
-  return model.options.flatMap((entry) => ("value" in entry ? [entry] : entry.options));
+  const option = configOptions.find(matches);
+  return option?.type === "select" ? option : undefined;
+}
+
+function selectValues(option: Extract<EffectAcpSchema.SessionConfigOption, { type: "select" }>) {
+  return option.options.flatMap((entry) => ("value" in entry ? [entry] : entry.options));
+}
+
+function antigravityModelConfig(configOptions: SessionConfigOptions) {
+  return selectConfig(configOptions, (option) => option.id === "model");
+}
+
+export function antigravityThinkingConfig(configOptions: SessionConfigOptions) {
+  return selectConfig(
+    configOptions,
+    (option) => option.category === "thought_level" || option.id === "thinking_level",
+  );
+}
+
+/**
+ * Antigravity 1.4 offers a model family plus a separate thinking level where
+ * 1.3 offered combined ids such as `gemini-3.8-flash-high`. T3 keeps the
+ * combined ids, so saved selections and flat gateway catalogs resolve alike.
+ */
+export function currentAntigravityModel(configOptions: SessionConfigOptions): string | undefined {
+  const model = antigravityModelConfig(configOptions)?.currentValue;
+  const level = antigravityThinkingConfig(configOptions)?.currentValue;
+  return model && level ? `${model}-${level}` : model;
+}
+
+function splitAntigravityModel(
+  configOptions: SessionConfigOptions,
+  modelId: string,
+): { readonly model: string; readonly thinkingLevel?: string } | undefined {
+  const modelConfig = antigravityModelConfig(configOptions);
+  const families = modelConfig ? selectValues(modelConfig).map((entry) => entry.value) : [];
+  if (families.includes(modelId)) return { model: modelId };
+  if (!antigravityThinkingConfig(configOptions)) return undefined;
+  const family = families
+    .filter((value) => modelId.startsWith(`${value}-`))
+    .toSorted((left, right) => right.length - left.length)[0];
+  return family ? { model: family, thinkingLevel: modelId.slice(family.length + 1) } : undefined;
 }
 
 function resolveAntigravityModel(input: {
-  readonly configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>;
+  readonly configOptions: SessionConfigOptions;
   readonly model: string | null | undefined;
   readonly defaultModel?: string | undefined;
 }): string | undefined {
-  const modelConfig = input.configOptions.find((option) => option.id === "model");
-  const current = modelConfig?.type === "select" ? modelConfig.currentValue : undefined;
   if (input.model && input.model !== ANTIGRAVITY_DEFAULT_MODEL) return input.model;
-  const options = antigravityModelOptions(input.configOptions);
-  return input.defaultModel && options.some((option) => option.value === input.defaultModel)
+  return input.defaultModel && splitAntigravityModel(input.configOptions, input.defaultModel)
     ? input.defaultModel
-    : current;
+    : currentAntigravityModel(input.configOptions);
 }
 
 /** Never replace a saved selection with the default returned by a cold resume. */
@@ -119,15 +158,14 @@ export const applyAntigravityAcpModelSelection = Effect.fn("applyAntigravityAcpM
   function* <E>(input: {
     readonly runtime: Pick<
       AcpSessionRuntime.AcpSessionRuntime["Service"],
-      "getConfigOptions" | "setModel"
+      "getConfigOptions" | "setModel" | "setConfigOption"
     >;
     readonly model: string | null | undefined;
     readonly defaultModel?: string | undefined;
     readonly mapError: (cause: EffectAcpErrors.AcpError) => E;
   }): Effect.fn.Return<string | undefined, E> {
     const configOptions = yield* input.runtime.getConfigOptions;
-    const modelConfig = configOptions.find((option) => option.id === "model");
-    const current = modelConfig?.type === "select" ? modelConfig.currentValue : undefined;
+    const current = currentAntigravityModel(configOptions);
     const resolved = resolveAntigravityModel({
       configOptions,
       model: input.model,
@@ -135,17 +173,25 @@ export const applyAntigravityAcpModelSelection = Effect.fn("applyAntigravityAcpM
     });
     const explicit = Boolean(input.model) && input.model !== ANTIGRAVITY_DEFAULT_MODEL;
     if (resolved === undefined || (!explicit && resolved === current)) return current;
-    const options = antigravityModelOptions(configOptions);
-    if (!options.some((option) => option.value === resolved)) {
-      return yield* Effect.fail(
-        input.mapError(
-          EffectAcpErrors.AcpRequestError.invalidParams(
-            `Antigravity model '${resolved}' is unavailable for this Google account. Select an available model.`,
-          ),
+    const unavailable = () =>
+      input.mapError(
+        EffectAcpErrors.AcpRequestError.invalidParams(
+          `Antigravity model '${resolved}' is unavailable. Select an available model.`,
         ),
       );
+    const target = splitAntigravityModel(configOptions, resolved);
+    if (!target) return yield* Effect.fail(unavailable());
+    yield* input.runtime.setModel(target.model).pipe(Effect.mapError(input.mapError));
+    if (target.thinkingLevel !== undefined) {
+      // Thinking levels vary by family, so read them after the family switch.
+      const levels = antigravityThinkingConfig(yield* input.runtime.getConfigOptions);
+      if (!levels || !selectValues(levels).some((entry) => entry.value === target.thinkingLevel)) {
+        return yield* Effect.fail(unavailable());
+      }
+      yield* input.runtime
+        .setConfigOption(levels.id, target.thinkingLevel)
+        .pipe(Effect.mapError(input.mapError));
     }
-    yield* input.runtime.setModel(resolved).pipe(Effect.mapError(input.mapError));
     return resolved;
   },
 );

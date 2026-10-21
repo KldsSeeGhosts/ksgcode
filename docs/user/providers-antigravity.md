@@ -42,6 +42,13 @@ Choose **Sign-in method** in the Antigravity provider settings:
 | Gemini Enterprise          | Browser sign-in, GCP project, and GCP location                                               |
 | Gemini API key             | API key; choose Connect without a browser                                                    |
 | Agent Platform / Vertex AI | API key, or GCP project and location with Application Default Credentials on the environment |
+| AI API gateway             | Gateway URL, optional API key, and optional model list                                       |
+
+An AI API gateway is a proxy that serves the Gemini API, such as a
+self-hosted model router. Antigravity sends the API key as a bearer token.
+**Gateway models** takes comma-separated IDs; a family such as `gemini-4-argon`
+adds each of its thinking levels. Leave it empty to offer Antigravity's built-in
+list. Google still marks gateway support as a rollout feature of its runtime.
 
 The environment stores the Antigravity API key outside its settings file, and
 clients only see whether one is saved. The agent uses the method and credentials selected for this instance;
