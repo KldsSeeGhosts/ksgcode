@@ -6,7 +6,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
-import { redactServerSettingsForClient } from "./serverSettings.ts";
+import { projectServerSettingsForClient } from "./serverSettings.ts";
 
 const upstreamSettings = Schema.Struct({
   usageLimitSources: Schema.Record(
@@ -36,9 +36,9 @@ const settings = {
 
 it("keeps upstream mobile settings decodable without changing stored CPA sources", () => {
   assert.throws(() =>
-    Schema.decodeUnknownSync(upstreamSettings)(redactServerSettingsForClient(settings, true)),
+    Schema.decodeUnknownSync(upstreamSettings)(projectServerSettingsForClient(settings, true)),
   );
-  const projected = redactServerSettingsForClient(settings, false);
+  const projected = projectServerSettingsForClient(settings, false);
   const decoded = Schema.decodeUnknownSync(upstreamSettings)(projected);
   assert.deepEqual(Object.keys(decoded.usageLimitSources), [proxyId]);
   assert.notInclude(JSON.stringify(projected), "proxy-secret");
@@ -47,7 +47,7 @@ it("keeps upstream mobile settings decodable without changing stored CPA sources
 });
 
 it("keeps CPA Manager settings available to clients that advertise support", () => {
-  const projected = redactServerSettingsForClient(settings, true);
+  const projected = projectServerSettingsForClient(settings, true);
   assert.propertyVal(projected.usageLimitSources[managerId], "kind", "cpa-manager");
   assert.notInclude(JSON.stringify(projected), "manager-secret");
 });

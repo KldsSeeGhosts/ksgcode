@@ -6,7 +6,7 @@ import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS, WsRpcGroup, WsSubscribeServerConfigRpc } from "./rpc.ts";
 
 describe("subscribeServerConfig payload compatibility", () => {
-  it("is accepted by a server whose schema predates the field", () => {
+  it("lets older upstream servers ignore the CPA Manager capability", () => {
     const oldServerPayload = Schema.Struct({});
     const decoded = Schema.decodeExit(oldServerPayload)({
       environmentThemes: true,
