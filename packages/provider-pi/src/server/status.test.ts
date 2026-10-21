@@ -1,11 +1,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -52,7 +55,10 @@ function piProbeSpawner(version: string) {
   });
 }
 
-const piDiscoverySpawner = (inventory: unknown) =>
+const piDiscoverySpawner = (
+  inventory: unknown,
+  options: { readonly wedgedRelease?: Deferred.Deferred<void> } = {},
+) =>
   Effect.gen(function* () {
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
     let stdinBuffer = "";
@@ -83,17 +89,26 @@ const piDiscoverySpawner = (inventory: unknown) =>
     );
     return ChildProcessSpawner.make((command) => {
       const args = ChildProcess.isStandardCommand(command) ? command.args : [];
-      return Effect.succeed(
-        args.includes("--version")
-          ? processHandle({ stdout: "pi 0.84.3\n" })
-          : ChildProcessSpawner.makeHandle({
-              ...processHandle({}),
-              exitCode: Effect.never,
-              isRunning: Effect.succeed(true),
-              stdin,
-              stdout: Stream.fromQueue(stdout),
-            }),
-      );
+      if (args.includes("--version"))
+        return Effect.succeed(processHandle({ stdout: "pi 0.84.3\n" }));
+      const handle = ChildProcessSpawner.makeHandle({
+        ...processHandle({}),
+        exitCode: Effect.never,
+        isRunning: Effect.succeed(true),
+        stdin,
+        stdout: Stream.fromQueue(stdout),
+      });
+      // Mirrors a process wedged in kernel exit: the spawner's release waits
+      // for an exit event that never arrives.
+      const releaseStarted = options.wedgedRelease;
+      return releaseStarted === undefined
+        ? Effect.succeed(handle)
+        : Effect.as(
+            Effect.addFinalizer(() =>
+              Deferred.succeed(releaseStarted, undefined).pipe(Effect.andThen(Effect.never)),
+            ),
+            handle,
+          );
     });
   });
 
@@ -143,6 +158,26 @@ describe("PiProvider", () => {
         snapshot.models.map((model) => model.slug),
         ["default"],
       );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("finishes status refresh when the Pi process never finishes exiting", () =>
+    Effect.gen(function* () {
+      const releaseStarted = yield* Deferred.make<void>();
+      const spawner = yield* piDiscoverySpawner(
+        { models: [{ provider: "anthropic", id: "claude-sonnet-4" }] },
+        { wedgedRelease: releaseStarted },
+      );
+      const status = yield* checkPiProviderStatus(settings).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(releaseStarted);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("5 seconds");
+      const snapshot = yield* Fiber.join(status);
+      assert.equal(snapshot.status, "ready");
+      assert.equal(snapshot.auth.status, "authenticated");
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

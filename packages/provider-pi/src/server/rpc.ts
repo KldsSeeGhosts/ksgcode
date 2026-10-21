@@ -7,6 +7,8 @@ import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as Queue from "effect/Queue";
@@ -88,6 +90,7 @@ export interface PiRpcConnection {
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const TERMINATION_GRACE = Duration.seconds(1);
+const PROCESS_RELEASE_TIMEOUT = Duration.seconds(5);
 
 interface PendingPiRequest {
   readonly deferred: Deferred.Deferred<unknown, PiRpcError>;
@@ -186,6 +189,22 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   const spawnCommand = yield* resolveSpawnCommand(options.command, [...options.args], {
     env: options.env,
   }).pipe(Effect.mapError((cause) => new PiRpcError({ operation: "spawn", cause })));
+
+  // The spawner releases a child by waiting, without a bound, for its exit
+  // event. A pi process wedged in kernel exit (macOS state `E`) never emits
+  // one, and that uninterruptible wait would hang the caller's scope forever,
+  // including provider status refresh. The spawn gets its own scope, and the
+  // caller stops waiting on its release after a bound.
+  const processScope = yield* Scope.make();
+  yield* Scope.addFinalizer(
+    scope,
+    Scope.close(processScope, Exit.void).pipe(
+      Effect.forkDetach,
+      Effect.flatMap((release) =>
+        Fiber.await(release).pipe(Effect.timeoutOption(PROCESS_RELEASE_TIMEOUT)),
+      ),
+    ),
+  );
   const child = yield* spawner
     .spawn(
       ChildProcess.make(spawnCommand.command, spawnCommand.args, {
@@ -196,7 +215,10 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
         detached: platform !== "win32",
       }),
     )
-    .pipe(Effect.mapError((cause) => new PiRpcError({ operation: "spawn", cause })));
+    .pipe(
+      Scope.provide(processScope),
+      Effect.mapError((cause) => new PiRpcError({ operation: "spawn", cause })),
+    );
 
   let childExited = false;
   let diagnosingStdoutClose = false;
