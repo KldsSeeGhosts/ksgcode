@@ -264,4 +264,109 @@ it.layer(NodeServices.layer)("dedicated ACP provider maintenance", (it) => {
       ).toBeNull();
     }),
   );
+
+  it.effect("updates the managed KSG ZCode channel without consulting npm", () =>
+    Effect.gen(function* () {
+      const calls: Array<ReadonlyArray<string>> = [];
+      const launcher = "/users/test/.local/lib/ksg-providers/zcode-acp/managed/zcode-acp";
+      const result = yield* runResolver(
+        zcodeMaintenance,
+        {
+          ...context,
+          resolvedCommandPath: launcher,
+          realCommandPath: launcher,
+        },
+        (args) => {
+          calls.push(args);
+          return {
+            stdout: args.includes("--ksg-maintenance")
+              ? JSON.stringify({
+                  schema: 1,
+                  repository: "KldsSeeGhosts/zcode-acp",
+                  installedVersion: "0.72.0-ksg.20261015.1",
+                })
+              : "0.72.0-ksg.20261015.2\n",
+          };
+        },
+      );
+      expect(result.packageName).toBeNull();
+      expect(result.installedVersion).toBe("0.72.0-ksg.20261015.1");
+      expect(result.update?.executable).toBe(launcher);
+      expect(result.update?.args).toEqual(["--ksg-update"]);
+      expect(yield* result.latestVersionLookup!.read).toBe("0.72.0-ksg.20261015.2");
+      expect(calls).toEqual([["--ksg-maintenance"], ["--ksg-update-check"]]);
+    }),
+  );
+
+  it.effect("keeps the configured Windows Node launcher in KSG maintenance commands", () =>
+    Effect.gen(function* () {
+      const launcher = "C:/Users/Test/.local/lib/ksg-providers/zcode-acp/managed/launch.mjs";
+      const result = yield* runResolver(
+        zcodeMaintenance,
+        {
+          ...context,
+          platform: "win32",
+          resolvedCommandPath: "C:/node/node.exe",
+          realCommandPath: "C:/node/node.exe",
+          commandArgs: [launcher],
+        },
+        (args) => {
+          expect(args[0]).toBe(launcher);
+          return {
+            stdout: args.includes("--ksg-maintenance")
+              ? JSON.stringify({
+                  schema: 1,
+                  repository: "KldsSeeGhosts/zcode-acp",
+                  installedVersion: "0.72.0-ksg.20261015.1",
+                })
+              : "0.75.0\n",
+          };
+        },
+      );
+      expect(result.update?.args).toEqual([launcher, "--ksg-update"]);
+      expect(yield* result.latestVersionLookup!.read).toBeNull();
+      expect(result.packageName).toBeNull();
+    }),
+  );
+
+  it.effect("does not trust a missing or foreign managed ZCode ownership response", () =>
+    Effect.gen(function* () {
+      for (const stdout of [
+        "",
+        "not JSON",
+        JSON.stringify({ schema: 1, repository: "another/bridge", installedVersion: "0.72.0" }),
+      ]) {
+        const launcher = "/users/test/.local/lib/ksg-providers/zcode-acp/managed/zcode-acp";
+        const result = yield* runResolver(
+          zcodeMaintenance,
+          {
+            ...context,
+            resolvedCommandPath: launcher,
+            realCommandPath: launcher,
+          },
+          () => ({ stdout }),
+        );
+        expect(result.update).toBeNull();
+        expect(result.packageName).toBeNull();
+      }
+    }),
+  );
+
+  it.effect("never advertises public npm updates for legacy KSG bridge wrappers", () =>
+    runResolver(
+      zcodeMaintenance,
+      {
+        ...context,
+        realCommandPath: "/users/test/.local/lib/ksg-providers/zcode-acp/f5ac093/zcode-acp",
+      },
+      () => {
+        throw new Error("legacy KSG installs must not probe npm or run an unknown updater");
+      },
+    ).pipe(
+      Effect.map((result) => {
+        expect(result.update).toBeNull();
+        expect(result.packageName).toBeNull();
+      }),
+    ),
+  );
 });

@@ -24,6 +24,11 @@ custom answer; multi-select questions retain their multiple-choice behavior.
 
 ## Updates
 
-The update action in **Settings → Providers** updates the `zcode-acp-server` bridge when its global
-package-manager installation can be identified. It does not update the ZCode desktop app.
-Custom wrappers and unrecognized installations remain manual.
+Managed KSG installations use the same provider update action and **Update All** flow as other
+providers. They check only published `KldsSeeGhosts/zcode-acp` releases, not the public npm bridge.
+The updater verifies the download, native steering support, and existing model availability before
+switching installations. If validation fails, the current bridge stays active. Existing sessions
+are not restarted.
+
+For ordinary global `zcode-acp-server` installations, updates use the detected package manager.
+Other custom wrappers remain manual. Neither path updates the ZCode desktop app or changes sign-in.

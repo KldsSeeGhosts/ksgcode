@@ -104,6 +104,7 @@ export interface ProviderMaintenanceResolutionContext {
   readonly realCommandPath: string;
   readonly env: NodeJS.ProcessEnv;
   readonly platform: NodeJS.Platform;
+  readonly commandArgs?: ReadonlyArray<string>;
 }
 
 export type ProviderMaintenanceResolverServices =
@@ -772,6 +773,7 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
   options?: {
     readonly binaryPath?: string | null;
     readonly env?: NodeJS.ProcessEnv;
+    readonly commandArgs?: ReadonlyArray<string>;
   },
 ) {
   const binaryPath = nonEmptyString(options?.binaryPath);
@@ -798,6 +800,7 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
     realCommandPath,
     env,
     platform: yield* HostProcess.Platform,
+    ...(options?.commandArgs ? { commandArgs: options.commandArgs } : {}),
   });
 });
 
@@ -919,9 +922,11 @@ function installerLatestVersionKey(capabilities: ProviderMaintenanceCapabilities
 export function latestProviderVersionCacheKeys(
   capabilities: ProviderMaintenanceCapabilities,
 ): ReadonlyArray<string> {
-  return [capabilities.packageName, installerLatestVersionKey(capabilities)].filter(
-    (key) => key !== null,
-  );
+  return [
+    capabilities.packageName,
+    installerLatestVersionKey(capabilities),
+    capabilities.latestVersionLookup?.cacheKey ?? null,
+  ].filter((key) => key !== null);
 }
 
 export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVersion")(function* (
@@ -976,7 +981,11 @@ export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
   const capabilities =
     maintenanceCapabilities ?? makeManualProviderMaintenanceCapabilities(snapshot.driver);
   const currentVersion =
-    snapshot.installedVersion !== undefined ? snapshot.installedVersion : snapshot.version;
+    capabilities.installedVersion ??
+    (snapshot.installedVersion !== undefined ? snapshot.installedVersion : snapshot.version);
+  const installedSnapshot = capabilities.installedVersion
+    ? { ...snapshot, installedVersion: capabilities.installedVersion }
+    : snapshot;
   const shouldResolveLatestVersion =
     options?.enableProviderUpdateChecks !== false &&
     snapshot.enabled &&
@@ -984,7 +993,7 @@ export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
     Boolean(currentVersion);
   if (!shouldResolveLatestVersion) {
     return {
-      ...snapshot,
+      ...installedSnapshot,
       versionAdvisory: createProviderVersionAdvisory({
         driver: snapshot.driver,
         currentVersion,
@@ -996,7 +1005,7 @@ export const enrichProviderSnapshotWithVersionAdvisory = Effect.fn(
 
   const latestVersion = yield* resolveLatestProviderVersion(capabilities);
   return {
-    ...snapshot,
+    ...installedSnapshot,
     versionAdvisory: createProviderVersionAdvisory({
       driver: snapshot.driver,
       currentVersion,

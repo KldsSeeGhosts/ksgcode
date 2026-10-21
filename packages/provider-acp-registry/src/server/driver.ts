@@ -585,6 +585,7 @@ export const makeAcpAgentDriver = <Settings>(
         definition.maintenance
           ? resolveProviderMaintenanceCapabilitiesEffect(definition.maintenance, {
               binaryPath: effectiveConfig.commandPath,
+              commandArgs: effectiveConfig.commandArgs,
               env: processEnvironment,
             }).pipe(
               Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),

@@ -175,11 +175,10 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
           }),
         },
       };
-      const versions = yield* ProviderLatestVersions.ProviderLatestVersions;
       expect(yield* resolveLatestProviderVersion(capabilities)).toBe("2.0.0-canary.1");
       expect(yield* resolveLatestProviderVersion(capabilities)).toBe("2.0.0-canary.1");
       expect(reads).toBe(1);
-      yield* versions.invalidate("native-tool:canary");
+      yield* invalidateLatestProviderVersion(capabilities);
       yield* resolveLatestProviderVersion(capabilities);
       expect(reads).toBe(2);
     }).pipe(
@@ -188,6 +187,32 @@ it.layer(NodeServices.layer)("providerMaintenance", (it) => {
         HttpClient.HttpClient,
         HttpClient.make(() => Effect.die("not npm")),
       ),
+    ),
+  );
+
+  it.effect("tracks managed release revisions without changing the native protocol version", () =>
+    enrichProviderSnapshotWithVersionAdvisory(
+      { ...installedPackageToolProvider, version: "0.72.0" },
+      {
+        ...manualPackageTool,
+        installedVersion: "0.72.0-ksg.20261015.1",
+        latestVersion: "0.72.0-ksg.20261015.2",
+      },
+    ).pipe(
+      Effect.provide(ProviderLatestVersions.layer),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.die("not npm")),
+      ),
+      Effect.map((provider) => {
+        expect(provider.version).toBe("0.72.0");
+        expect(provider.installedVersion).toBe("0.72.0-ksg.20261015.1");
+        expect(provider.versionAdvisory).toMatchObject({
+          status: "behind_latest",
+          currentVersion: "0.72.0-ksg.20261015.1",
+          latestVersion: "0.72.0-ksg.20261015.2",
+        });
+      }),
     ),
   );
 
