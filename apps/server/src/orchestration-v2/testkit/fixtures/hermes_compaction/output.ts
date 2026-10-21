@@ -58,7 +58,9 @@ export function assertHermesCompactionOutput(
     ? compactionPromptParts
     : [];
   assert.equal(field(compactionPromptPartList[0], "text"), "/compress");
-  assert.equal(promptTexts[2]?.[0], HERMES_COMPACTION_NORMAL_PROMPT);
+  // Compaction clears the instruction cache, so the next prompt restores the interaction mode.
+  assert.equal(promptTexts[2]?.[0], promptTexts[0]?.[0]);
+  assert.include(promptTexts[2]?.[0] ?? "", HERMES_COMPACTION_NORMAL_PROMPT);
 
   assertBaseProjection({
     result,
