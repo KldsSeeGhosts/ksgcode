@@ -632,6 +632,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const currentLinkedPr = supportsMultiplePullRequests
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
+  // The server-synced rollup, so rows add no host requests; checks on a merged or closed PR are moot.
+  const prChecksState =
+    currentLinkedPr?.snapshot?.state === "open" ? currentLinkedPr.snapshot.checksState : null;
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
@@ -700,6 +703,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       }
                     : null;
   const isWokeStatus = topStatus?.icon === "woke";
+  // Only states that wait on the user get an edge, so a long list scans as one line.
+  // It borrows the status label's color, so the two always match.
+  const attentionRailClassName =
+    topStatus !== null &&
+    (status === "approval" || status === "input" || status === "failed" || status === "limited")
+      ? topStatus.className
+      : null;
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
@@ -1011,6 +1021,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         number={pr?.number ?? currentLinkedPr?.number}
         url={pr?.url ?? currentLinkedPr?.url}
         status={prStatus}
+        checksState={prChecksState}
         onOpenList={handlePrListClick}
         onOpenPullRequest={handlePrClick}
       />
@@ -1265,6 +1276,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
+          {attentionRailClassName ? (
+            <span
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-y-2.5 left-0 w-[3px] rounded-r-full bg-current",
+                attentionRailClassName,
+              )}
+            />
+          ) : null}
           <div className="relative z-10 flex h-[3.25rem] flex-col justify-between px-(--sidebar-row-content-inset) py-1.5">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               <span
