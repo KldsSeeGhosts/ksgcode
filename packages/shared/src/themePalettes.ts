@@ -926,7 +926,7 @@ export const IRIS_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-export const CLAUDE_THEME: ThemeDefinition = {
+const CLAUDE_THEME: ThemeDefinition = {
   id: "claude",
   label: "Claude",
   appearance: "light",
@@ -1061,7 +1061,7 @@ export const CLAUDE_THEME: ThemeDefinition = {
   sidebarArtwork: true,
 };
 
-export const CURSOR_THEME: ThemeDefinition = {
+const CURSOR_THEME: ThemeDefinition = {
   id: "cursor",
   label: "Cursor",
   appearance: "light",
