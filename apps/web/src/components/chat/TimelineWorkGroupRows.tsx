@@ -497,7 +497,8 @@ export function LiveWorkEntryTimelineRow({
 
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
   const thoughtLine = row.thought && !row.expanded ? liveThoughtLine(row.thought.detail ?? "") : "";
-  const thoughtIsStatus = thoughtLine !== "" && row.entry === row.thought;
+  const thoughtIsStatus =
+    row.entry.itemType === "reasoning" && (row.expanded || thoughtLine !== "");
 
   return (
     <button

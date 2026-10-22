@@ -386,3 +386,78 @@ describe("compact reasoning math", () => {
     ]);
   });
 });
+
+describe("live reasoning groups", () => {
+  it("shows the reasoning once when expanding tools followed by thinking", async () => {
+    setup();
+    const runId = RunId.make("pi-thinking-run");
+    const thought = "Interesting! The HOME role already belongs to FreeMyTV.";
+    const work = (
+      id: string,
+      entry: Omit<Extract<Entry, { kind: "work" }>["entry"], "id" | "createdAt" | "runId">,
+    ): Entry => ({
+      id,
+      kind: "work",
+      createdAt: CREATED_AT,
+      entry: { id, createdAt: CREATED_AT, runId, ...entry },
+    });
+    await using screen = await renderTimeline(
+      [
+        message("Checking the Home role and installation instructions.", {
+          role: "assistant",
+          runId,
+        }),
+        work("check-role", {
+          label: "bash",
+          itemType: "command_execution",
+          command: "adb shell dumpsys role",
+          tone: "tool",
+          toolLifecycleStatus: "completed",
+        }),
+        work("read-instructions", {
+          label: "bash",
+          itemType: "command_execution",
+          command: "cat README.md",
+          tone: "tool",
+          toolLifecycleStatus: "completed",
+        }),
+        work("thinking", {
+          label: "Thinking",
+          itemType: "reasoning",
+          detail: thought,
+          tone: "thinking",
+          toolLifecycleStatus: "inProgress",
+        }),
+      ],
+      {
+        isWorking: true,
+        activeTurnInProgress: true,
+        latestRun: {
+          runId,
+          status: "running",
+          startedAt: CREATED_AT,
+          completedAt: null,
+        },
+      },
+    );
+
+    await click(screen.button(/Interesting!/));
+
+    await expect.element(screen.getByText("adb shell dumpsys role", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText("cat README.md", { exact: true })).toBeVisible();
+    await vi.waitFor(() => expect(screen.text().split(thought)).toHaveLength(2));
+    await expect
+      .element(screen.getByRole("button", { name: "Thinking", exact: true }))
+      .toHaveAttribute("aria-expanded", "true");
+
+    await click(screen.button("Thinking"));
+
+    await vi.waitFor(() => {
+      expect(screen.text()).not.toContain("adb shell dumpsys role");
+      expect(screen.text()).not.toContain("cat README.md");
+    });
+    await expect
+      .element(screen.getByRole("button", { name: /Interesting!/ }))
+      .toHaveAttribute("aria-expanded", "false");
+  });
+});
