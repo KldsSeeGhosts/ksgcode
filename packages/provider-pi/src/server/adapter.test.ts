@@ -3181,6 +3181,112 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("normalizes multi-select questionnaires and returns Pi's numeric selections", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      const question = {
+        header: "Next move",
+        question: "Which direction do you want to take next? (pick any)",
+        multiSelect: true,
+        options: [
+          { label: "Settings debloat (Recommended)", description: "Walk through the TV toggles." },
+          { label: "Measure", description: "Measure load and swap." },
+          { label: "Compare", description: "Compare the results." },
+        ],
+      };
+      const title =
+        `[${question.header}] ${question.question}\n\n` +
+        question.options
+          .map((option, index) => `${index + 1}. ${option.label} — ${option.description}`)
+          .join("\n") +
+        '\n\nEnter the numbers of all that apply, comma-separated (e.g. "1,3"). Add "; custom answer" to include your own text, or type only custom text.';
+      yield* fake.emit({
+        type: "tool_execution_start",
+        toolCallId: "ask-multi",
+        toolName: "ask_user_question",
+        args: { questions: [question] },
+      });
+      for (const [index, answer, expected] of [
+        [0, ["1", "3"], "1,3"],
+        [1, "1,3; keep my custom answer; exactly", "1,3; keep my custom answer; exactly"],
+        [2, "My own answer", "My own answer"],
+        [3, [], ""],
+        [4, ["unknown"], undefined],
+        [5, undefined, undefined],
+      ] as const) {
+        const id = `ui-multi-${index}`;
+        yield* fake.emit({
+          type: "extension_ui_request",
+          id,
+          method: "input",
+          title,
+          placeholder: "1,3; custom answer",
+        });
+        const event = yield* takeEvent(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "user_input_request" &&
+            event.turnItem.questions[0]?.id === id,
+        );
+        if (event.type !== "turn_item.updated" || event.turnItem.type !== "user_input_request")
+          return assert.fail("expected a user input request");
+        assert.deepEqual(decodeUserInputQuestions(event.turnItem.questions), [
+          {
+            ...question,
+            id,
+            options: question.options.map((option, index) => ({
+              ...option,
+              value: String(index + 1),
+            })),
+          },
+        ]);
+        yield* runtime.respondToRuntimeRequest({
+          requestId: event.turnItem.requestId,
+          answers: answer === undefined ? {} : { [id]: answer },
+        });
+        const response = yield* fake.takeRequest("extension_ui_response");
+        assert.equal(response["id"], id);
+        assert.equal(response["value"], expected);
+        assert.equal(response["cancelled"], expected === undefined ? true : undefined);
+      }
+      yield* fake.emit({
+        type: "tool_execution_end",
+        toolCallId: "ask-multi",
+        toolName: "ask_user_question",
+        result: { content: [] },
+      });
+      yield* fake.emit({
+        type: "extension_ui_request",
+        id: "ui-unrelated-input",
+        method: "input",
+        title,
+        placeholder: "1,3; custom answer",
+      });
+      const unrelated = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "user_input_request" &&
+          event.turnItem.questions[0]?.id === "ui-unrelated-input",
+      );
+      if (
+        unrelated.type !== "turn_item.updated" ||
+        unrelated.turnItem.type !== "user_input_request"
+      )
+        return assert.fail("expected an unrelated input request");
+      assert.equal(unrelated.turnItem.questions[0]?.header, title);
+      assert.equal(unrelated.turnItem.questions[0]?.question, "1,3; custom answer");
+      assert.equal(unrelated.turnItem.questions[0]?.options[0]?.value, "");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect("offers an explicit empty value for extension input dialogs", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;

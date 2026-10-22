@@ -72,7 +72,7 @@ import {
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./mcpExtensionSource.ts";
-import { piQuestionnaireSelect } from "./userInput.ts";
+import { piQuestionnaireQuestion } from "./userInput.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
 const PI_DRIVER_KIND = PI_PROVIDER;
@@ -3338,9 +3338,10 @@ function piQuestion(
               value: "",
             },
           ];
-  if (method === "select") {
-    const structured = piQuestionnaireSelect(
+  if (method !== "editor") {
+    const structured = piQuestionnaireQuestion(
       questionId,
+      method,
       title,
       options.map((option) => option.value),
       questionnaires,
@@ -3378,6 +3379,20 @@ function piUiResponse(
   // An empty string is a valid dialog value per the RPC spec (the extension
   // receives ""), distinct from cancelling (the extension receives undefined).
   if (typeof answer === "string") return { value: answer };
+  const question =
+    pending.turnItem.type === "user_input_request"
+      ? pending.turnItem.questions.find((question) => question.id === pending.questionId)
+      : undefined;
+  if (
+    question?.multiSelect &&
+    Array.isArray(answer) &&
+    answer.every(
+      (value) =>
+        typeof value === "string" && question.options.some((option) => option.value === value),
+    )
+  ) {
+    return { value: answer.join(",") };
+  }
   return { cancelled: true };
 }
 
