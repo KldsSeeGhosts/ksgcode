@@ -7,8 +7,6 @@ export function resolveAppearanceMaterial(input: {
   supportsBackdropFilter: boolean;
   desktop: boolean;
   nativeMaterial: WindowMaterial;
-  /** macOS vibrancy paints its own adaptive frost; Windows Mica and Acrylic barely do. */
-  nativeMaterialTinted: boolean;
 }) {
   const opacity = input.reducedTransparency ? 100 : input.opacity;
   const material =
@@ -21,23 +19,19 @@ export function resolveAppearanceMaterial(input: {
   const glass = material !== "solid";
   // One theme tint covers the whole window. Every pane shares it so the
   // wallpaper reads as one smoked sheet instead of a patchwork of densities.
-  // Where the OS material already frosts the backdrop, the page adds less so
-  // the two together land at the same density.
-  const nativeShare = input.desktop && input.nativeMaterialTinted ? 20 : 0;
   const shellOpacity = !glass
     ? 100
     : liquid
-      ? Math.max(36, opacity - 14) - nativeShare
-      : Math.max(48, opacity - 10) - nativeShare;
+      ? Math.max(36, opacity - 14)
+      : Math.max(48, opacity - 10);
   return {
     material,
     native: input.desktop && glass,
     opacity,
     glassOpacity: liquid ? Math.max(50, 100 - (100 - opacity) * 1.4) : opacity,
     shellOpacity,
-    // Light glass needs more cover for dark text to stay crisp over busy
-    // wallpaper, unless the OS material is already a light frost.
-    lightShellOpacity: Math.min(glass ? 96 : 100, shellOpacity + (nativeShare ? 0 : 10)),
+    // Light glass needs more cover for dark text to stay crisp over busy wallpaper.
+    lightShellOpacity: Math.min(glass ? 96 : 100, shellOpacity + 10),
     blur: opacity === 100 ? "0px" : liquid ? "28px" : glass ? "20px" : null,
     saturation: liquid ? "1.6" : glass ? "1.2" : null,
   };

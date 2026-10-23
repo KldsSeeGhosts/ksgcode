@@ -24,6 +24,8 @@ vi.mock("node:os", async (importOriginal) => ({
   release: () => "10.0.22621",
 }));
 
+vi.mock("./MacosGlassBackdrop.ts", () => ({ stripMacosVibrancyFrost: vi.fn(async () => 1) }));
+
 vi.mock("electron", async (importOriginal) => ({
   ...(await importOriginal<typeof import("electron")>()),
   session: {
@@ -55,6 +57,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { SNAP_SHOT_EVENT_CHANNEL } from "../ipc/channels.ts";
+import { stripMacosVibrancyFrost } from "./MacosGlassBackdrop.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -552,11 +555,14 @@ describe("DesktopWindow", () => {
         assert.equal(yield* desktopWindow.getWindowMaterial, "solid");
         assert.equal(fake.setVibrancy.mock.lastCall?.[0], null);
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#ffffff");
+        const strips = vi.mocked(stripMacosVibrancyFrost).mock.calls.length;
 
         yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "frosted" as const }));
         yield* desktopWindow.syncAppearance;
         assert.equal(yield* desktopWindow.getWindowMaterial, "frosted");
         assert.equal(fake.setVibrancy.mock.lastCall?.[0], "sidebar");
+        // Without stripping, AppKit's frost hides the desktop behind flat grey.
+        assert.equal(vi.mocked(stripMacosVibrancyFrost).mock.calls.length, strips + 1);
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#00000000");
         assert.equal(yield* Ref.get(createCount), 1);
       }).pipe(

@@ -54,7 +54,7 @@ import {
   toastManager,
 } from "../components/ui/toast";
 import { isElectron } from "../env";
-import { cn, isMacPlatform } from "../lib/utils";
+import { cn } from "../lib/utils";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
 import { applyAppearanceMaterial } from "~/appearanceMaterial";
@@ -307,7 +307,6 @@ function GlassAppearanceSync() {
       supportsBackdropFilter: CSS.supports("backdrop-filter", "blur(1px)"),
       desktop: isElectron,
       nativeMaterial,
-      nativeMaterialTinted: isMacPlatform(navigator.platform),
     });
   }, [glassOpacity, windowMaterial, nativeMaterial, reducedTransparency]);
 

@@ -44,6 +44,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import { stripMacosVibrancyFrost } from "./MacosGlassBackdrop.ts";
 import { resolveWindowMaterial, supportsWindowMaterial } from "./windowMaterial.ts";
 
 const TITLEBAR_HEIGHT = 40;
@@ -63,8 +64,8 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   });
 }
 
-// The most translucent adaptive material. AppKit still paints its own frost
-// under the page, so the renderer lightens its tint on macOS to match.
+// Only the backdrop blur of this material survives; MacosGlassBackdrop strips
+// AppKit's frost so the renderer's tint decides the glass, as on Windows.
 const MACOS_GLASS_VIBRANCY = "sidebar" as const;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
@@ -327,6 +328,16 @@ export const make = Effect.gen(function* () {
   const nativeMaterialSupported = supportsWindowMaterial(environment.platform, osRelease);
   const windowMaterialRef = yield* Ref.make<WindowMaterial>("solid");
   const appearanceGate = yield* Semaphore.make(1);
+  const stripMacosFrost = (window: Electron.BrowserWindow) =>
+    Effect.tryPromise({
+      try: () => stripMacosVibrancyFrost(window),
+      catch: (cause) => new DesktopWindowMaterialError({ cause }),
+    }).pipe(
+      Effect.catch((cause) =>
+        logWindowWarning("could not neutralize macOS vibrancy frost", { cause }),
+      ),
+      Effect.asVoid,
+    );
   const syncMainWindowMaterial = Effect.fn("desktop.window.syncMainWindowMaterial")(function* (
     window: Electron.BrowserWindow,
     shouldUseDarkColors: boolean,
@@ -385,6 +396,9 @@ export const make = Effect.gen(function* () {
       ),
     );
     yield* Ref.set(windowMaterialRef, applied);
+    if (environment.platform === "darwin" && applied !== "solid") {
+      yield* stripMacosFrost(window);
+    }
     if (!force && previous !== applied && !window.isDestroyed()) {
       window.webContents.send(WINDOW_MATERIAL_CHANNEL, applied);
     }
@@ -517,6 +531,23 @@ export const make = Effect.gen(function* () {
     yield* rendererHistory.register(window.webContents, { surface: "main" });
     if (environment.platform === "darwin") {
       window.setAutoHideCursor(false);
+      // AppKit rebuilds its private material layers after these, restoring
+      // the frost that stripMacosVibrancyFrost removed.
+      const restoreGlassBlur = () => {
+        runFork(
+          Ref.get(windowMaterialRef).pipe(
+            Effect.flatMap((material) =>
+              material === "solid" || window.isDestroyed() ? Effect.void : stripMacosFrost(window),
+            ),
+          ),
+        );
+      };
+      window.on("focus", restoreGlassBlur);
+      window.on("blur", restoreGlassBlur);
+      window.on("resize", restoreGlassBlur);
+      window.on("moved", restoreGlassBlur);
+      window.on("enter-full-screen", restoreGlassBlur);
+      window.on("leave-full-screen", restoreGlassBlur);
     }
     let boundsPersistFiber: Fiber.Fiber<void, never> | undefined;
     let pendingBoundsPersistFiber: Fiber.Fiber<void, never> | undefined;
