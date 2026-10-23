@@ -14,6 +14,7 @@ import {
   type PreviewAutomationStatus,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -21,7 +22,9 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import type { BrowserContext, Page } from "playwright-core";
 import { beforeEach, expect, vi } from "vite-plus/test";
 
@@ -333,6 +336,82 @@ beforeEach(() => {
   desktopConnections.length = 0;
 });
 
+it.live.each([
+  { desktop: false, stalled: "Page.startScreencast" },
+  { desktop: false, stalled: "Page.captureScreenshot" },
+  { desktop: true, stalled: "Page.startScreencast" },
+  { desktop: true, stalled: "Page.captureScreenshot" },
+])("attaches before a stalled $stalled completes (desktop: $desktop)", ({ desktop, stalled }) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      desktopRendersNext = desktop;
+      const { browser, tabId } = yield* ready;
+      const context = desktop ? desktopConnections[0]!.context : contexts[0]!;
+      const captureStarted = Promise.withResolvers<void>();
+      const finishCapture = Promise.withResolvers<void>();
+      const newSession = context.newCDPSession;
+      vi.spyOn(context, "newCDPSession").mockImplementationOnce(async (target) => {
+        const session = await newSession(target);
+        const send = session.send.getMockImplementation()!;
+        session.send.mockImplementation(async (method, input) => {
+          if (method === stalled) {
+            captureStarted.resolve();
+            await finishCapture.promise;
+          }
+          return send(method, input);
+        });
+        return session;
+      });
+      let attached = false;
+      const connection = yield* browser.attachViewer(viewerInput(tabId, true)).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            attached = true;
+          }),
+        ),
+        Effect.forkScoped,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(() => finishCapture.resolve()));
+      yield* Effect.promise(() => captureStarted.promise);
+      expect(attached).toBe(true);
+      const viewer = yield* Fiber.join(connection);
+      const control = yield* Queue.take(viewer.output);
+      expect(control._tag).toBe("control");
+      yield* viewer.input({ type: "takeControl" });
+      finishCapture.resolve();
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.effect("detaches a viewer even when Chromium never finishes stopping its screencast", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { browser, tabId } = yield* ready;
+      const viewerScope = yield* Scope.make();
+      const viewer = yield* browser
+        .attachViewer(viewerInput(tabId, false))
+        .pipe(Scope.provide(viewerScope));
+      let output = yield* Queue.take(viewer.output);
+      while (output._tag !== "frame") output = yield* Queue.take(viewer.output);
+      const session = contexts[0]!.sessions.at(-1)!;
+      const send = session.send.getMockImplementation()!;
+      const stopping = Promise.withResolvers<void>();
+      const stopped = Promise.withResolvers<Record<string, unknown>>();
+      session.send.mockImplementation((method, input) => {
+        if (method !== "Page.stopScreencast") return send(method, input);
+        stopping.resolve();
+        return stopped.promise;
+      });
+      const close = yield* Scope.close(viewerScope, Exit.void).pipe(Effect.forkScoped);
+      yield* Effect.addFinalizer(() => Effect.sync(() => stopped.resolve({})));
+      yield* Effect.promise(() => stopping.promise);
+      yield* TestClock.adjust("2 seconds");
+      yield* Fiber.join(close);
+      expect(session.detach).toHaveBeenCalledOnce();
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
 it.live.each(["desktop" as const, undefined])(
   "explicit desktop targets ($0 runtime) fail without creating a server tab",
   (runtime) =>
@@ -512,7 +591,13 @@ it.live("streams to a read-only viewer without allowing takeover, input, or view
         yield* viewer.input(message);
       expect(page.setViewportSize).not.toHaveBeenCalled();
       expect(session.send.mock.calls.some(([method]) => method.startsWith("Input."))).toBe(false);
-      const outputs = yield* Queue.takeAll(viewer.output);
+      const outputs: ServerBrowser.ServerBrowserViewerOutput[] = [];
+      let output = yield* Queue.take(viewer.output);
+      outputs.push(output);
+      while (output._tag !== "frame") {
+        output = yield* Queue.take(viewer.output);
+        outputs.push(output);
+      }
       expect(outputs).toContainEqual(
         expect.objectContaining({ _tag: "frame", data: Buffer.from("frame") }),
       );

@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { DesktopBrowserEvent } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as NodeEvents from "node:events";
@@ -52,6 +53,40 @@ const takeEvents = (host: DesktopBrowserHost.DesktopBrowserHost["Service"], coun
   );
 
 describe("DesktopBrowserHost", () => {
+  it.effect.each(["release", "detach", "reconnect"] as const)(
+    "releases capture activity when the server connection ends (%s)",
+    (ending) =>
+      Effect.gen(function* () {
+        const host = yield* DesktopBrowserHost.make;
+        host.attach(key, makeDebuggee().tab);
+        const changes = yield* Queue.unbounded<boolean>();
+        yield* host.captures.pipe(
+          Stream.runForEach(({ active }) => Queue.offer(changes, active)),
+          Effect.forkScoped({ startImmediately: true }),
+        );
+        yield* host.handleCommandLine(
+          encodeJson({
+            type: "cdp",
+            ...key,
+            message: encodeJson({
+              id: 1,
+              method: "Page.startScreencast",
+              sessionId: "t3-preview-page",
+            }),
+          }),
+        );
+        expect(yield* Queue.take(changes)).toBe(true);
+        if (ending === "release") {
+          yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
+        } else if (ending === "detach") {
+          host.detach(key);
+        } else {
+          yield* takeEvents(host, 1);
+        }
+        expect(yield* Queue.take(changes)).toBe(false);
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("announces tabs already attached to a backend that starts later", () =>
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.make;

@@ -592,6 +592,7 @@ export interface DesktopPreviewTabState {
   canGoForward: boolean;
   zoomFactor: number;
   pictureInPicture: boolean;
+  capturing?: boolean;
   colorScheme: DesktopPreviewColorScheme;
   audioMuted: boolean;
   /**
