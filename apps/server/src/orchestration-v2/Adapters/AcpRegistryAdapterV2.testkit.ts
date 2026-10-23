@@ -1,4 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ProviderInstanceId } from "@t3tools/contracts";
+import type { AcpAgentProfile } from "@t3tools/provider-acp-registry/server";
 import { AcpRegistrySettings } from "@t3tools/provider-acp-registry/settings";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import * as Effect from "effect/Effect";
@@ -35,6 +37,7 @@ const REPLAY_SETTINGS = Schema.decodeUnknownSync(AcpRegistrySettings)({
 function layerAcpRegistryProviderAdapterRegistryReplay(
   transcript: AcpReplayTranscript,
   options: { readonly replayGate?: ProviderReplayGate } = {},
+  profile?: AcpAgentProfile,
 ) {
   const layerHost = TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer));
 
@@ -54,8 +57,12 @@ function layerAcpRegistryProviderAdapterRegistryReplay(
         .fromFileUrl(new URL("../../../scripts/acp-replay-agent.ts", import.meta.url))
         .pipe(Effect.orDie);
       const adapter = yield* makeAcpRegistryAdapterV2({
-        instanceId: ACP_REGISTRY_DEFAULT_INSTANCE_ID,
+        instanceId:
+          profile === undefined
+            ? ACP_REGISTRY_DEFAULT_INSTANCE_ID
+            : ProviderInstanceId.make(profile.driverKind),
         settings: REPLAY_SETTINGS,
+        ...(profile === undefined ? {} : { profile }),
         environment: {},
         selfInvocation: yield* resolveSelfInvocation(),
         makeRuntime: makeAcpReplayRuntime({
@@ -90,14 +97,17 @@ function layerAcpRegistryProviderAdapterRegistryReplay(
   );
 }
 
-export const AcpRegistryOrchestratorReplayHarness: OrchestratorV2ProviderReplayHarness<
-  AcpReplayTranscript,
-  AcpReplayTranscriptDecodeError
-> = {
-  driver: ACP_REGISTRY_PROVIDER,
-  decodeTranscript: (transcript) =>
-    decodeAcpReplayTranscript(transcript, ACP_REGISTRY_PROVIDER, {
-      retargetProvider: true,
-    }),
-  makeProviderAdapterRegistryLayer: layerAcpRegistryProviderAdapterRegistryReplay,
-};
+export function makeAcpAgentOrchestratorReplayHarness(
+  profile?: AcpAgentProfile,
+): OrchestratorV2ProviderReplayHarness<AcpReplayTranscript, AcpReplayTranscriptDecodeError> {
+  const driver = profile?.driverKind ?? ACP_REGISTRY_PROVIDER;
+  return {
+    driver,
+    decodeTranscript: (transcript) =>
+      decodeAcpReplayTranscript(transcript, driver, { retargetProvider: true }),
+    makeProviderAdapterRegistryLayer: (transcript, options) =>
+      layerAcpRegistryProviderAdapterRegistryReplay(transcript, options, profile),
+  };
+}
+
+export const AcpRegistryOrchestratorReplayHarness = makeAcpAgentOrchestratorReplayHarness();

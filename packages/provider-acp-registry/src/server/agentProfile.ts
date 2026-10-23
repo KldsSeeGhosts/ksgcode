@@ -9,6 +9,7 @@
 import type {
   CustomModelSetting,
   ProviderDriverKind,
+  ServerProvider,
   ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import type { AcpAdapterV2Flavor } from "@t3tools/provider-acp/server/adapter";
@@ -49,6 +50,12 @@ export interface AcpAgentProfile {
   readonly managedModeOptionIds?: ReadonlyArray<string>;
   /** The agent reports `usage_update` with a context size, so clients show the meter. */
   readonly reportsContextWindow?: boolean;
+  /** Some bridges report their protocol package's version instead of the installed product. */
+  readonly versionSource?: "cli";
+  readonly presentation?: Pick<
+    ServerProvider,
+    "supportedRuntimeModes" | "showInteractionModeToggle"
+  >;
 }
 
 /** T3's Compact action needs a `compact` command; agents may name theirs differently. */

@@ -39,6 +39,7 @@ const BUILT_IN_DRIVER_ORDER: ReadonlyArray<string> = [
   "zcode",
   "hermes",
   "omp",
+  "deepseek",
 ];
 
 const driverRank = (driver: string): number => {
