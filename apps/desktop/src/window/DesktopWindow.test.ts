@@ -116,6 +116,7 @@ function makeFakeBrowserWindow() {
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     getNativeWindowHandle: vi.fn(() => Buffer.alloc(8, 1)),
     isDestroyed: vi.fn(() => false),
+    isFocused: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
     isMinimized: vi.fn(() => false),
@@ -512,6 +513,11 @@ describe("DesktopWindow", () => {
           fake.window.getNativeWindowHandle(),
           true,
         ]);
+        yield* Effect.callback<void>((resume) => {
+          setWindowsActiveAppearance.mockImplementationOnce(() => resume(Effect.void));
+          fake.windowListeners.get("blur")!();
+        });
+        assert.equal(setWindowsActiveAppearance.mock.lastCall?.[1], true);
         yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "liquid" as const }));
         yield* desktopWindow.syncAppearance;
         assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "acrylic");
@@ -535,7 +541,7 @@ describe("DesktopWindow", () => {
         yield* desktopWindow.syncAppearance;
         assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "acrylic");
         assert.equal(setWindowsActiveAppearance.mock.lastCall?.[1], true);
-        assert.equal(setWindowsActiveAppearance.mock.calls.length, 5);
+        assert.equal(setWindowsActiveAppearance.mock.calls.length, 6);
         assert.equal(vi.mocked(fake.window.focus).mock.calls.length, 0);
         assert.equal(yield* desktopWindow.getWindowMaterial, "liquid");
       }).pipe(

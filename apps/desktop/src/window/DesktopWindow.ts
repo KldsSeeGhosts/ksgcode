@@ -329,6 +329,19 @@ export const make = Effect.gen(function* () {
   const nativeMaterialSupported = supportsWindowMaterial(environment.platform, osRelease);
   const windowMaterialRef = yield* Ref.make<WindowMaterial>("solid");
   const appearanceGate = yield* Semaphore.make(1);
+  const syncWindowsGlassAppearance = Effect.fn("desktop.window.syncWindowsGlassAppearance")(
+    (window: Electron.BrowserWindow, active: boolean) =>
+      Effect.tryPromise(async () => {
+        const setActiveAppearance = await loadWindowsGlass();
+        if (!window.isDestroyed()) {
+          setActiveAppearance(window.getNativeWindowHandle(), active);
+        }
+      }).pipe(
+        Effect.catch((cause) =>
+          logWindowWarning("could not keep Windows glass active while unfocused", { cause }),
+        ),
+      ),
+  );
   const syncMainWindowMaterial = Effect.fn("desktop.window.syncMainWindowMaterial")(function* (
     window: Electron.BrowserWindow,
     shouldUseDarkColors: boolean,
@@ -392,16 +405,7 @@ export const make = Effect.gen(function* () {
       nativeMaterialSupported &&
       (previous !== "solid" || applied !== "solid")
     ) {
-      yield* Effect.tryPromise(async () => {
-        const setActiveAppearance = await loadWindowsGlass();
-        if (!window.isDestroyed()) {
-          setActiveAppearance(window.getNativeWindowHandle(), applied !== "solid");
-        }
-      }).pipe(
-        Effect.catch((cause) =>
-          logWindowWarning("could not keep Windows glass active while unfocused", { cause }),
-        ),
-      );
+      yield* syncWindowsGlassAppearance(window, applied !== "solid" || window.isFocused());
     }
     yield* Ref.set(windowMaterialRef, applied);
     if (!force && previous !== applied && !window.isDestroyed()) {
@@ -532,6 +536,17 @@ export const make = Effect.gen(function* () {
       return Option.none();
     }
     yield* syncMainWindowMaterial(window, shouldUseDarkColors, true);
+    if (environment.platform === "win32" && nativeMaterialSupported) {
+      window.on("blur", () => {
+        runFork(
+          Ref.get(windowMaterialRef).pipe(
+            Effect.flatMap((material) =>
+              material === "solid" ? Effect.void : syncWindowsGlassAppearance(window, true),
+            ),
+          ),
+        );
+      });
+    }
 
     yield* rendererHistory.register(window.webContents, { surface: "main" });
     if (environment.platform === "darwin") {
