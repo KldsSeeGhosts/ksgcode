@@ -665,6 +665,8 @@ describe("npmShimCommand", () => {
     // An extra line in the prog block could run anything.
     const extraLine = NPM_DSH_SHIM.replace(") ELSE (", ") ELSE (\r\n  REM surprise");
     expect(npmShimCommand(dshPath, () => extraLine, exists)).toBeUndefined();
+    const expandedPath = NPM_DSH_SHIM.replace("\\dsh\\lib\\bin.js", "\\%DSH_PACKAGE%\\lib\\bin.js");
+    expect(npmShimCommand(dshPath, () => expandedPath, exists)).toBeUndefined();
     // The script must exist.
     expect(
       npmShimCommand(

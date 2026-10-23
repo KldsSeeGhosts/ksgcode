@@ -742,7 +742,7 @@ const NPM_NODE_SHIM_PROG_BLOCK = [
   ")",
 ];
 const NPM_NODE_SHIM_RUN =
-  /^endLocal & goto #_undefined_# 2>NUL \|\| title %COMSPEC% & "%_prog%" +"%dp0%\\([^"]+)" %\*$/;
+  /^endLocal & goto #_undefined_# 2>NUL \|\| title %COMSPEC% & "%_prog%" +"%dp0%\\([^"%]+)" %\*$/;
 
 function readFileSyncOrUndefined(filePath: string): string | undefined {
   try {
