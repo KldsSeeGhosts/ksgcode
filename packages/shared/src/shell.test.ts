@@ -21,7 +21,7 @@ import {
   listLoginShellCandidates,
   mergePathEntries,
   mergePathValues,
-  npmShimExecutable,
+  npmShimCommand,
   preferGitForWindowsBinary,
   readEnvironmentFromLoginShell,
   readEnvironmentFromWindowsShell,
@@ -592,17 +592,43 @@ const NPM_OPENCODE_SHIM = [
   "",
 ].join("\r\n");
 
-describe("npmShimExecutable", () => {
+// Byte for byte what `npm install -g @deepseek-ai/dsh` writes as `dsh.cmd`.
+const NPM_DSH_SHIM = [
+  "@ECHO off",
+  "GOTO start",
+  ":find_dp0",
+  "SET dp0=%~dp0",
+  "EXIT /b",
+  ":start",
+  "SETLOCAL",
+  "CALL :find_dp0",
+  'IF EXIST "%dp0%\\node.exe" (',
+  '  SET "_prog=%dp0%\\node.exe"',
+  ") ELSE (",
+  '  SET "_prog=node"',
+  "  SET PATHEXT=%PATHEXT:;.JS;=;%",
+  ")",
+  'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js" %*',
+  "",
+].join("\r\n");
+
+describe("npmShimCommand", () => {
   const shimPath = "C:\\Users\\me\\AppData\\Roaming\\npm\\opencode.cmd";
   const executable =
     "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\opencode-ai\\bin\\opencode.exe";
   const exists = (filePath: string) => filePath === executable;
 
   it("finds the executable npm's shim runs", () => {
-    expect(npmShimExecutable(shimPath, () => NPM_OPENCODE_SHIM, exists)).toBe(executable);
+    expect(npmShimCommand(shimPath, () => NPM_OPENCODE_SHIM, exists)).toEqual({
+      command: executable,
+      args: [],
+    });
     expect(
-      npmShimExecutable(shimPath.replace(".cmd", ".CMD"), () => NPM_OPENCODE_SHIM, exists),
-    ).toBe(executable);
+      npmShimCommand(shimPath.replace(".cmd", ".CMD"), () => NPM_OPENCODE_SHIM, exists),
+    ).toEqual({
+      command: executable,
+      args: [],
+    });
   });
 
   it("keeps a shim that does more than run the executable", () => {
@@ -610,16 +636,49 @@ describe("npmShimExecutable", () => {
       "SETLOCAL",
       "SETLOCAL\r\nSET OPENCODE_CONFIG=C:\\x",
     );
-    expect(npmShimExecutable(shimPath, () => withSetting, exists)).toBeUndefined();
-    const nodeScript = NPM_OPENCODE_SHIM.replace(
-      '"%dp0%\\node_modules\\opencode-ai\\bin\\opencode.exe"   %*',
-      '"%_prog%"  "%dp0%\\node_modules\\opencode-ai\\bin\\opencode.js" %*',
-    );
+    expect(npmShimCommand(shimPath, () => withSetting, exists)).toBeUndefined();
+  });
+
+  it("runs a Node script shim through the shim's own node resolution", () => {
+    const dshPath = "C:\\Users\\me\\AppData\\Roaming\\npm\\dsh.cmd";
+    const script =
+      "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js";
+    const existsScript = (filePath: string) => filePath === script;
+    expect(npmShimCommand(dshPath, () => NPM_DSH_SHIM, existsScript)).toEqual({
+      command: "node",
+      args: [script],
+    });
+    const withLocalNode = (filePath: string) =>
+      filePath === script || filePath === "C:\\Users\\me\\AppData\\Roaming\\npm\\node.exe";
+    expect(npmShimCommand(dshPath, () => NPM_DSH_SHIM, withLocalNode)).toEqual({
+      command: "C:\\Users\\me\\AppData\\Roaming\\npm\\node.exe",
+      args: [script],
+    });
+  });
+
+  it("keeps a Node script shim CMD would read differently", () => {
+    const dshPath = "C:\\Users\\me\\AppData\\Roaming\\npm\\dsh.cmd";
+    const exists = () => true;
+    // A different `_prog` runs something else than the node found here.
+    const otherProg = NPM_DSH_SHIM.replace('  SET "_prog=node"', '  SET "_prog=bun"');
+    expect(npmShimCommand(dshPath, () => otherProg, exists)).toBeUndefined();
+    // An extra line in the prog block could run anything.
+    const extraLine = NPM_DSH_SHIM.replace(") ELSE (", ") ELSE (\r\n  REM surprise");
+    expect(npmShimCommand(dshPath, () => extraLine, exists)).toBeUndefined();
+    // The script must exist.
     expect(
-      npmShimExecutable(
-        shimPath,
-        () => nodeScript,
-        () => true,
+      npmShimCommand(
+        dshPath,
+        () => NPM_DSH_SHIM,
+        () => false,
+      ),
+    ).toBeUndefined();
+    const missingScript = NPM_DSH_SHIM.replace(/\\dsh\\lib\\bin\.js/, "\\dsh\\lib\\gone.js");
+    expect(
+      npmShimCommand(
+        dshPath,
+        () => missingScript,
+        (filePath) => filePath.endsWith("bin.js"),
       ),
     ).toBeUndefined();
   });
@@ -630,7 +689,7 @@ describe("npmShimExecutable", () => {
     for (const suffix of ["\u00a0", "\t", " "]) {
       const altered = NPM_OPENCODE_SHIM.replace("SET dp0=%~dp0", `SET dp0=%~dp0${suffix}`);
       expect(
-        npmShimExecutable(
+        npmShimCommand(
           shimPath,
           () => altered,
           () => true,
@@ -642,7 +701,7 @@ describe("npmShimExecutable", () => {
       'opencode.exe"\u00a0%*',
     );
     expect(
-      npmShimExecutable(
+      npmShimCommand(
         shimPath,
         () => nonBreakingSeparator,
         () => true,
@@ -650,7 +709,7 @@ describe("npmShimExecutable", () => {
     ).toBeUndefined();
     const indented = NPM_OPENCODE_SHIM.replace("SETLOCAL", "  SETLOCAL");
     expect(
-      npmShimExecutable(
+      npmShimCommand(
         shimPath,
         () => indented,
         () => true,
@@ -658,23 +717,23 @@ describe("npmShimExecutable", () => {
     ).toBeUndefined();
   });
 
-  it("keeps the shim when its executable is missing or it is not a .cmd", () => {
+  it("keeps the shim when its command is missing or it is not a .cmd", () => {
     expect(
-      npmShimExecutable(
+      npmShimCommand(
         shimPath,
         () => NPM_OPENCODE_SHIM,
         () => false,
       ),
     ).toBeUndefined();
     expect(
-      npmShimExecutable(
+      npmShimCommand(
         shimPath,
         () => undefined,
         () => true,
       ),
     ).toBeUndefined();
     expect(
-      npmShimExecutable(
+      npmShimCommand(
         shimPath.replace(".cmd", ".bat"),
         () => NPM_OPENCODE_SHIM,
         () => true,
@@ -733,6 +792,39 @@ effectIt.layer(NodeServices.layer)("resolveSpawnCommand", (it) => {
           expect(yield* resolve(true)).toEqual({
             command: executable,
             args: ["serve", "--port=4096"],
+            shell: false,
+          });
+          expect((yield* resolve(false)).shell).toBe(true);
+        }),
+      ),
+  );
+
+  it.effect.runIf(HostProcess.Platform.defaultValue() === "win32")(
+    "runs the Node script behind an npm shim directly when asked",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const prefix = yield* fs.makeTempDirectoryScoped({ prefix: "t3-npm-node-shim-" });
+          const shim = path.join(prefix, "dsh.cmd");
+          const script = path.join(prefix, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
+          yield* fs.makeDirectory(path.dirname(script), { recursive: true });
+          yield* fs.writeFileString(script, "");
+          yield* fs.writeFileString(shim, NPM_DSH_SHIM);
+          const resolve = (bypassNpmShim: boolean) =>
+            resolveSpawnCommand("dsh", ["--profile", "acp"], {
+              env: { PATH: "", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
+              bypassNpmShim,
+            }).pipe(
+              Effect.provideService(HostProcess.Platform, "win32"),
+              Effect.provideService(CommandResolutionCache, new Map()),
+              Effect.provideService(SpawnExecutableResolution, () => shim),
+            );
+
+          expect(yield* resolve(true)).toEqual({
+            command: "node",
+            args: [script, "--profile", "acp"],
             shell: false,
           });
           expect((yield* resolve(false)).shell).toBe(true);

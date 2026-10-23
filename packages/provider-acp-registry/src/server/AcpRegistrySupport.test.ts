@@ -327,6 +327,84 @@ describe("AcpRegistrySupport", () => {
     ),
   );
 
+  // The npm shim only parses from real files, and the Windows path it must sit
+  // at only exists where Windows paths are real.
+  it.effect.runIf(HostProcess.Platform.defaultValue() === "win32")(
+    "launches a local npm cmd-shim's Node script directly on Windows",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const cacheDir = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "t3-acp-local-node-shim-",
+          });
+          const shimPath = path.join(cacheDir, "dsh.cmd");
+          const scriptPath = path.join(
+            cacheDir,
+            "node_modules",
+            "@deepseek-ai",
+            "dsh",
+            "lib",
+            "bin.js",
+          );
+          // Byte for byte what `npm install -g @deepseek-ai/dsh` writes.
+          yield* fileSystem.makeDirectory(path.dirname(scriptPath), { recursive: true });
+          yield* fileSystem.writeFileString(
+            shimPath,
+            [
+              "@ECHO off",
+              "GOTO start",
+              ":find_dp0",
+              "SET dp0=%~dp0",
+              "EXIT /b",
+              ":start",
+              "SETLOCAL",
+              "CALL :find_dp0",
+              'IF EXIST "%dp0%\\node.exe" (',
+              '  SET "_prog=%dp0%\\node.exe"',
+              ") ELSE (",
+              '  SET "_prog=node"',
+              "  SET PATHEXT=%PATHEXT:;.JS;=;%",
+              ")",
+              'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@deepseek-ai\\dsh\\lib\\bin.js" %*',
+              "",
+            ].join("\r\n"),
+          );
+          yield* fileSystem.writeFileString(scriptPath, "");
+          const environment = { PATH: cacheDir };
+          const resolver = yield* AcpRegistrySupport.makeAcpRegistryCatalog({
+            cacheDir,
+            toolsDir: `${cacheDir}/tools`,
+            registryUrl,
+          }).pipe(
+            Effect.provideService(HostProcess.Platform, "win32"),
+            Effect.provideService(SpawnExecutableResolution, () => shimPath),
+          );
+          const localSettings = decodeAcpRegistrySettings({
+            source: "local",
+            commandPath: "dsh",
+            commandArgs: ["--profile", "acp"],
+          });
+
+          expect(yield* resolver.inspect(localSettings, environment)).toEqual({
+            status: "ready",
+            agentId: "dsh",
+            version: null,
+            distribution: "local",
+          });
+          const resolved = yield* resolver.resolve(localSettings, "C:\\workspace", environment);
+          expect(resolved.spawn).toEqual({
+            command: "node",
+            args: [scriptPath, "--profile", "acp"],
+            cwd: "C:\\workspace",
+            env: environment,
+            shell: false,
+          });
+        }).pipe(Effect.provide(layerResolver(() => Effect.die("unexpected registry request")))),
+      ),
+  );
+
   it.effect("reports missing or non-executable local commands without registry fallback", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
