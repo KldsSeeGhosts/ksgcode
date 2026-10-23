@@ -10,6 +10,7 @@ import { pullRequestDetailToVcsStatus } from "@t3tools/client-runtime/state/pull
 import {
   resolveEnvironmentMachineKind,
   type EnvironmentId,
+  type PullRequestChecksState,
   type ScopedThreadRef,
   type ThreadLinkedPullRequest,
   type ThreadPullRequestLink,
@@ -57,7 +58,10 @@ import {
   PullRequestGlyph,
   type PullRequestGlyphIcon,
 } from "./pullRequest/pullRequestIcons";
-import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
+import {
+  pullRequestChecksStatePresentation,
+  resolvePullRequestState,
+} from "./pullRequest/pullRequestPresentation";
 
 export interface PrStatusIndicator {
   label: string;
@@ -157,6 +161,7 @@ export interface ThreadPullRequestBadgePresentation {
   readonly toneClassName: string;
   readonly label: string;
   readonly text: string | number;
+  readonly checks?: PullRequestChecksState | undefined;
 }
 
 function resolveThreadPullRequestBadgePresentation({
@@ -164,11 +169,13 @@ function resolveThreadPullRequestBadgePresentation({
   number,
   url,
   status,
+  checksState,
 }: {
   readonly badge: ThreadPullRequestBadge | null;
   readonly number?: number | undefined;
   readonly url?: string | undefined;
   readonly status: PrStatusIndicator | null;
+  readonly checksState?: PullRequestChecksState | null | undefined;
 }): ThreadPullRequestBadgePresentation | null {
   if (badge?.kind === "stack") {
     const aggregate = PULL_REQUEST_STATE_PRESENTATION[badge.state];
@@ -191,12 +198,31 @@ function resolveThreadPullRequestBadgePresentation({
       text: `+${badge.others + 1}`,
     };
   }
+  // Aggregate badges above stand for several PRs, so only a single PR shows its checks.
+  const checks = checksState ?? undefined;
   return {
     Icon: status?.Icon ?? PullRequestGlyph.pullRequest,
     toneClassName: status?.colorClass ?? "text-muted-foreground",
-    label: tooltip,
+    label:
+      checks === undefined
+        ? tooltip
+        : `${tooltip}. ${pullRequestChecksStatePresentation(checks).label}`,
     text: number,
+    checks,
   };
+}
+
+function PullRequestChecksDot({ state }: { state: PullRequestChecksState }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "ml-0.5 size-1.5 shrink-0 rounded-full",
+        pullRequestChecksStatePresentation(state).toneClassName,
+        state === "pending" ? "border border-current" : "bg-current",
+      )}
+    />
+  );
 }
 
 export function ThreadPullRequestBadgeControl({
@@ -206,6 +232,7 @@ export function ThreadPullRequestBadgeControl({
   number,
   url,
   status,
+  checksState,
   onOpenList,
   onOpenPullRequest,
 }: {
@@ -215,10 +242,17 @@ export function ThreadPullRequestBadgeControl({
   number?: number | undefined;
   url?: string | undefined;
   status: PrStatusIndicator | null;
+  checksState?: PullRequestChecksState | null | undefined;
   onOpenList: () => void;
   onOpenPullRequest: (event: MouseEvent<HTMLElement>, url?: string) => void;
 }) {
-  const presentation = resolveThreadPullRequestBadgePresentation({ badge, number, url, status });
+  const presentation = resolveThreadPullRequestBadgePresentation({
+    badge,
+    number,
+    url,
+    status,
+    checksState,
+  });
   if (presentation === null) return null;
   return (
     <PullRequestBadge
@@ -285,6 +319,7 @@ function PullRequestBadge({
         >
           <presentation.Icon aria-hidden className="size-3 shrink-0" />
           <span>{presentation.text}</span>
+          {presentation.checks ? <PullRequestChecksDot state={presentation.checks} /> : null}
         </span>
       </TooltipTrigger>
       <TooltipPopup

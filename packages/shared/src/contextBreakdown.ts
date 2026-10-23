@@ -35,7 +35,7 @@ const CATEGORY_LABELS: Record<ContextCategory, string> = {
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as ReadonlyArray<ContextCategory>;
 
-export const CONTEXT_SYSTEM_LABEL = "System";
+const CONTEXT_SYSTEM_LABEL = "System";
 
 export type ContextCharTotals = Record<ContextCategory, number>;
 
@@ -68,9 +68,7 @@ function valueChars(value: unknown): number {
 }
 
 /** What one turn item adds to the model's context, or null when it adds nothing. */
-export function contextItemContribution(
-  item: OrchestrationV2TurnItem,
-): ContextItemContribution | null {
+function contextItemContribution(item: OrchestrationV2TurnItem): ContextItemContribution | null {
   switch (item.type) {
     case "user_message":
     case "assistant_message":

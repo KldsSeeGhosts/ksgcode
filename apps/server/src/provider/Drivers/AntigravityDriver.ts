@@ -120,6 +120,8 @@ export const AntigravityDriver: ProviderDriver<
       apiKey: settings.apiKey,
       gcpProject: settings.gcpProject,
       gcpLocation: settings.gcpLocation,
+      gatewayUrl: settings.gatewayUrl,
+      gatewayModels: settings.gatewayModels,
     };
     const authConfigIssue = antigravityAuthConfigIssue(auth);
     const processEnvironment = yield* mergeProviderInstanceEnvironment(environment);
