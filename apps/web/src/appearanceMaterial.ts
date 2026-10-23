@@ -19,19 +19,23 @@ export function resolveAppearanceMaterial(input: {
   const glass = material !== "solid";
   // One theme tint covers the whole window. Every pane shares it so the
   // wallpaper reads as one smoked sheet instead of a patchwork of densities.
+  // Light and dark were tuned by eye on Windows and macOS to read as equally
+  // see-through; light keeps slightly more cover so dark text stays crisp.
+  const lightShellOpacity = !glass
+    ? 100
+    : Math.min(96, liquid ? Math.max(36, opacity - 16) : Math.max(48, opacity - 10));
   const shellOpacity = !glass
     ? 100
     : liquid
-      ? Math.max(36, opacity - 14)
-      : Math.max(48, opacity - 10);
+      ? Math.max(34, opacity - 18)
+      : Math.max(46, opacity - 12);
   return {
     material,
     native: input.desktop && glass,
     opacity,
     glassOpacity: liquid ? Math.max(50, 100 - (100 - opacity) * 1.4) : opacity,
     shellOpacity,
-    // Light glass needs more cover for dark text to stay crisp over busy wallpaper.
-    lightShellOpacity: Math.min(glass ? 96 : 100, shellOpacity + 10),
+    lightShellOpacity,
     blur: opacity === 100 ? "0px" : liquid ? "28px" : glass ? "20px" : null,
     saturation: liquid ? "1.6" : glass ? "1.2" : null,
   };

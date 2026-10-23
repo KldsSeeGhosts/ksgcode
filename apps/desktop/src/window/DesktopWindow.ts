@@ -44,6 +44,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import { setMacosWindowBlur } from "./MacosWindowBlur.ts";
 import { resolveWindowMaterial, supportsWindowMaterial } from "./windowMaterial.ts";
 import { loadWindowsGlass } from "./WindowsGlass.ts";
 
@@ -64,10 +65,8 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   });
 }
 
-// under-window samples the desktop with the least AppKit coloration, so the
-// renderer's single theme tint decides the glass color rather than the sidebar
-// material's own white or grey fill.
-const MACOS_GLASS_VIBRANCY = "under-window" as const;
+// Points of WindowServer blur behind macOS glass; matches Acrylic's softness.
+const MACOS_GLASS_BLUR_RADIUS = 24;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
@@ -202,7 +201,7 @@ function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
   const label = shouldUseDarkColors ? "#9ca3af" : "#6b7280";
   const accent = shouldUseDarkColors ? "#f8fafc" : "#1f2937";
   const track = shouldUseDarkColors ? "rgba(248,250,252,0.18)" : "rgba(31,41,55,0.18)";
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSLâ€¦</div></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
@@ -368,22 +367,37 @@ export const make = Effect.gen(function* () {
       (environment.platform === "win32"
         ? previous !== material
         : (previous === "solid") !== (material === "solid"));
-    const applied = yield* Effect.try({
-      try: () => {
-        if (nativeChanged && environment.platform === "darwin") {
-          window.setVibrancy(material === "solid" ? null : MACOS_GLASS_VIBRANCY);
-        } else if (nativeChanged && environment.platform === "win32" && nativeMaterialSupported) {
-          window.setBackgroundMaterial(
-            material === "solid" ? "none" : material === "liquid" ? "acrylic" : "mica",
-          );
-        }
-        window.setBackgroundColor(
-          material === "solid" ? getInitialWindowBackgroundColor(shouldUseDarkColors) : "#00000000",
-        );
-        return material;
-      },
-      catch: (cause) => new DesktopWindowMaterialError({ cause }),
-    }).pipe(
+    const applyNativeMaterial = !nativeChanged
+      ? Effect.void
+      : environment.platform === "darwin"
+        ? Effect.tryPromise({
+            try: () =>
+              setMacosWindowBlur(window, material === "solid" ? 0 : MACOS_GLASS_BLUR_RADIUS),
+            catch: (cause) => new DesktopWindowMaterialError({ cause }),
+          })
+        : environment.platform === "win32" && nativeMaterialSupported
+          ? Effect.try({
+              try: () =>
+                window.setBackgroundMaterial(
+                  material === "solid" ? "none" : material === "liquid" ? "acrylic" : "mica",
+                ),
+              catch: (cause) => new DesktopWindowMaterialError({ cause }),
+            })
+          : Effect.void;
+    const applied = yield* applyNativeMaterial.pipe(
+      Effect.andThen(
+        Effect.try({
+          try: () => {
+            window.setBackgroundColor(
+              material === "solid"
+                ? getInitialWindowBackgroundColor(shouldUseDarkColors)
+                : "#00000000",
+            );
+            return material;
+          },
+          catch: (cause) => new DesktopWindowMaterialError({ cause }),
+        }),
+      ),
       Effect.catch((cause) =>
         logWindowWarning("native window material unavailable; using solid appearance", {
           cause,
@@ -498,17 +512,11 @@ export const make = Effect.gen(function* () {
       minHeight: 620,
       show: false,
       autoHideMenuBar: true,
-      // Electron selects the compositor's translucent backing at construction.
-      // setVibrancy alone cannot change it later, leaving stale pixels in glass
-      // regions. syncMainWindowMaterial removes vibrancy before showing Solid.
-      // An active effect keeps the glass from flattening to grey when the
-      // window loses focus, which would make every pane's tint shift at once.
+      // Electron selects the compositor's translucent backing at construction
+      // and cannot switch it later; a backing chosen opaque leaves stale pixels
+      // in glass regions. Solid is painted with an opaque background instead.
       ...(environment.platform === "darwin"
-        ? {
-            disableAutoHideCursor: true,
-            vibrancy: MACOS_GLASS_VIBRANCY,
-            visualEffectState: "active" as const,
-          }
+        ? { disableAutoHideCursor: true, transparent: true }
         : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
