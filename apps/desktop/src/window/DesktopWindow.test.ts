@@ -537,6 +537,44 @@ describe("DesktopWindow", () => {
     }),
   );
 
+  it.effect("creates a vibrancy-capable compositor even when starting solid", () =>
+    Effect.gen(function* () {
+      const fake = makeFakeBrowserWindow();
+      const settings = yield* Ref.make({ ...DEFAULT_CLIENT_SETTINGS });
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.createMain;
+        assert.equal(createdWindowOptions[0]?.vibrancy, "sidebar");
+        assert.equal(yield* desktopWindow.getWindowMaterial, "solid");
+        assert.equal(fake.setVibrancy.mock.lastCall?.[0], null);
+        assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#ffffff");
+
+        yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "frosted" as const }));
+        yield* desktopWindow.syncAppearance;
+        assert.equal(yield* desktopWindow.getWindowMaterial, "frosted");
+        assert.equal(fake.setVibrancy.mock.lastCall?.[0], "sidebar");
+        assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#00000000");
+        assert.equal(yield* Ref.get(createCount), 1);
+      }).pipe(
+        Effect.provide(
+          layerTest({
+            window: fake.window,
+            createCount,
+            mainWindow,
+            createdWindowOptions,
+            clientSettings: {
+              get: Ref.get(settings).pipe(Effect.asSome),
+              set: () => Effect.void,
+            },
+          }),
+        ),
+      );
+    }),
+  );
+
   it.effect("applies a saved material and restores a solid window without restarting", () =>
     Effect.gen(function* () {
       const fake = makeFakeBrowserWindow();
