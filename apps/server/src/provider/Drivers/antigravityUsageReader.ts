@@ -119,6 +119,7 @@ function modelName(name: string, id: number): string {
 
 interface Metadata {
   model: string;
+  namedModelId: number | null;
   timestampMs: number | null;
   usages: Fields[];
 }
@@ -138,11 +139,11 @@ function metadata(bytes: Uint8Array, step: boolean): Metadata {
     const retryUsage = bytesAt(fields(retry), 2);
     if (retryUsage !== undefined) usages.push(fields(retryUsage.slice()));
   }
+  const name = textAt(model, step ? 12 : 19) || textAt(model, step ? 8 : 21);
+  const id = numberAt(model, step ? 1 : 3);
   return {
-    model: modelName(
-      textAt(model, step ? 12 : 19) || textAt(model, step ? 8 : 21),
-      numberAt(model, step ? 1 : 3),
-    ),
+    model: modelName(name, id),
+    namedModelId: name && id > 0 ? id : null,
     timestampMs: step
       ? (timestamp(nested(data, 8)) ?? timestamp(nested(data, 1)))
       : timestamp(nested(nested(data, 9), 4)),
@@ -270,6 +271,17 @@ function usageCandidates(
 ): UsageCandidate[] {
   const records: UsageCandidate[] = [];
   const generationModels = new Map(generations.map(({ idx, entry }) => [idx, entry.model]));
+  // New CLI releases use placeholder enum IDs. The saved model metadata carries
+  // their names even when an individual usage/retry carries only the number.
+  const namedModels = new Map<number, string | null>();
+  for (const { entry } of [...generations, ...steps]) {
+    if (entry.namedModelId === null) continue;
+    const previous = namedModels.get(entry.namedModelId);
+    namedModels.set(
+      entry.namedModelId,
+      previous === undefined || previous === entry.model ? entry.model : null,
+    );
+  }
   for (const [source, entries] of [
     ["step", steps],
     ["generation", generations],
@@ -296,16 +308,19 @@ function usageCandidates(
           const id = textAt(usage, key);
           return id ? [`antigravity:${key}:${id}`] : [];
         });
+        const usageModelId = numberAt(usage, 1);
         const record: UsageRecord = {
           provider: "antigravity",
           sessionId,
           timestampMs: entry.timestampMs ?? trajectoryTimestamp ?? fallbackTimestamp,
           model:
-            MODEL_IDS[numberAt(usage, 1)] ||
-            entry.model ||
-            (source === "step" ? generationModels.get(idx) : "") ||
-            modelName("", numberAt(usage, 1)) ||
-            "antigravity-unknown",
+            usageModelId > 0
+              ? (namedModels.get(usageModelId) ??
+                MODEL_IDS[usageModelId] ??
+                modelName("", usageModelId))
+              : entry.model ||
+                (source === "step" ? generationModels.get(idx) : "") ||
+                "antigravity-unknown",
           totals,
           reportedCostUsd: null,
           speed: "standard",
@@ -482,7 +497,17 @@ export const readAntigravityUsage = Effect.fn("readAntigravityUsage")(function* 
   }
   for (const [index, group] of groups.entries()) {
     if (group.parent === index && group.record.timestampMs >= sinceMs) {
-      files[group.fileIndex]!.records.push(group.record);
+      const record = group.record;
+      // Reasoning levels do not change the base API price. Reseller entries can
+      // disagree on tiers, so bare Gemini names may have no unambiguous rate.
+      const rateModel = record.model.replace(/-(?:low|medium|high|max|thinking)$/, "");
+      files[group.fileIndex]!.records.push(
+        record.model.startsWith("gemini-")
+          ? { ...record, rateModel: `gemini/${rateModel}` }
+          : record.model.startsWith("claude-")
+            ? { ...record, rateModel }
+            : record,
+      );
     }
   }
   return { files, errors };
