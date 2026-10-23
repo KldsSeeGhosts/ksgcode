@@ -2,12 +2,13 @@ import type { OrchestrationV2UserInputQuestion } from "@t3tools/contracts";
 import { piRecordField, piRecordString } from "./rpc.ts";
 
 /**
- * RPIV's RPC fallback flattens its questionnaire into select strings. Recover
+ * RPIV's RPC fallback flattens its questionnaire into select/input strings. Recover
  * presentation only when both the title and every option match the active tool
- * input. Values must remain the original strings for the extension's decoder.
+ * input. Select replies use the original strings; multi-select replies use numbers.
  */
-export function piQuestionnaireSelect(
+export function piQuestionnaireQuestion(
   id: string,
+  method: "select" | "input",
   title: string,
   values: readonly string[],
   questionnaires: Iterable<unknown>,
@@ -16,33 +17,45 @@ export function piQuestionnaireSelect(
     const questions = piRecordField(params, "questions");
     if (!Array.isArray(questions)) continue;
     for (const question of questions) {
-      if (piRecordField(question, "multiSelect") === true) continue;
+      const multiSelect = piRecordField(question, "multiSelect") === true;
+      if (multiSelect !== (method === "input")) continue;
       const text = piRecordString(question, "question");
       const header = piRecordString(question, "header") ?? "";
       const options = piRecordField(question, "options");
       if (text === undefined || !Array.isArray(options) || options.length === 0) continue;
       const previews: string[] = [];
+      const lines: string[] = [];
       const choices: OrchestrationV2UserInputQuestion["options"][number][] = [];
       for (const [index, option] of options.entries()) {
         const label = piRecordString(option, "label");
         const description = piRecordString(option, "description");
         if (label === undefined || description === undefined) break;
         const value = `${index + 1}. ${label} — ${description}`;
-        if (values[index] !== value) break;
-        choices.push({ label, description, value });
+        if (!multiSelect && values[index] !== value) break;
+        lines.push(value);
+        choices.push({ label, description, value: multiSelect ? String(index + 1) : value });
         const preview = piRecordString(option, "preview");
         if (preview) {
           previews.push(`--- ${index + 1}. ${label} preview ---\n${preview.slice(0, 600)}`);
         }
       }
-      const expectedTitle =
-        `${header ? `[${header}] ` : ""}${text}` +
-        (previews.length > 0 ? `\n\n${previews.join("\n\n")}` : "");
-      if (
-        choices.length !== options.length ||
-        title !== expectedTitle ||
-        values.length !== choices.length + 1
-      ) {
+      if (choices.length !== options.length) continue;
+      const heading = `${header ? `[${header}] ` : ""}${text}`;
+      if (multiSelect) {
+        const expectedTitle =
+          `${heading}\n\n${lines.join("\n")}\n\n` +
+          'Enter the numbers of all that apply, comma-separated (e.g. "1,3"). Add "; custom answer" to include your own text, or type only custom text.';
+        if (title !== expectedTitle) continue;
+        return {
+          id,
+          header: header || "Select options",
+          question: text,
+          multiSelect: true,
+          options: choices,
+        };
+      }
+      const expectedTitle = heading + (previews.length > 0 ? `\n\n${previews.join("\n\n")}` : "");
+      if (title !== expectedTitle || values.length !== choices.length + 1) {
         continue;
       }
       // Keep localized/custom sentinel rows functional. The English RPIV row

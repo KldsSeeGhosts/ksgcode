@@ -330,12 +330,12 @@ function BackgroundWorktreeSetupChip({ snapshot }: { snapshot: WorktreeSetupSnap
             variant="ghost-muted"
             size="micro"
             className="ml-auto min-w-0 shrink-0"
-            aria-label={`${scriptName} is still running. Show setup progress.`}
+            aria-label={`Background setup is still running: ${scriptName}. Show setup progress.`}
           />
         }
       >
         <Spinner className="size-3 shrink-0" />
-        <span className="truncate">{scriptName}</span>
+        <span className="truncate">Background setup</span>
       </PopoverTrigger>
       <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
         <WorktreeSetupCard
@@ -497,7 +497,8 @@ export function LiveWorkEntryTimelineRow({
 
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
   const thoughtLine = row.thought && !row.expanded ? liveThoughtLine(row.thought.detail ?? "") : "";
-  const thoughtIsStatus = thoughtLine !== "" && row.entry === row.thought;
+  const thoughtIsStatus =
+    row.entry.itemType === "reasoning" && (row.expanded || thoughtLine !== "");
 
   return (
     <button

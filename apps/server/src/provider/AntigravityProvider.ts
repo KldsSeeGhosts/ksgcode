@@ -31,6 +31,7 @@ import {
   type ServerProviderDraft,
 } from "@t3tools/provider-core/server/snapshotProbe";
 import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usageLimits";
+import { antigravityThinkingConfig, currentAntigravityModel } from "./acp/AntigravityAcpSupport.ts";
 
 const EMPTY_MODEL_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
 const MAX_WORKSPACE_SNAPSHOTS = 32;
@@ -50,12 +51,19 @@ export function buildAntigravityModelsFromSession(
   const config = setup.configOptions?.find(
     (option) => option.id === "model" || option.category === "model",
   );
-  const currentValue =
-    config?.type === "select" ? config.currentValue : setup.models?.currentModelId;
+  // A separate thinking level means the config lists model families; the
+  // legacy model list keeps the combined ids T3 selects.
+  const configOptions = setup.configOptions ?? [];
+  const combined = antigravityThinkingConfig(configOptions) !== undefined && setup.models != null;
+  const currentValue = combined
+    ? (currentAntigravityModel(configOptions) ?? setup.models?.currentModelId)
+    : config?.type === "select"
+      ? config.currentValue
+      : setup.models?.currentModelId;
   const entries =
-    config?.type === "select"
+    config?.type === "select" && !combined
       ? config.options.flatMap((entry) => ("value" in entry ? [entry] : entry.options))
-      : config === undefined
+      : config === undefined || combined
         ? (setup.models?.availableModels.map((model) => ({
             value: model.modelId,
             name: model.name,
@@ -327,6 +335,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   const onConfigOptionsUpdated = Effect.fn("AntigravityProvider.onConfigOptionsUpdated")(function* (
     configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
   ) {
+    // Updates without the legacy model list would replace combined ids with families.
+    if (antigravityThinkingConfig(configOptions) !== undefined) return;
     const models = buildAntigravityModelsFromSession({ configOptions });
     yield* SubscriptionRef.update(metadata, (state) => {
       if (state.draft.auth.status !== "authenticated") return state;

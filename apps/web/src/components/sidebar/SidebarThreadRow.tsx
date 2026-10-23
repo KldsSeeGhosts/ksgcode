@@ -69,6 +69,7 @@ import { formatRelativeTimeLabel, parseTimestampDate } from "../../timestampForm
 import type { SidebarThreadSummary } from "../../types";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { cn } from "~/lib/utils";
+import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import {
   animateSidebarLayoutChanges,
@@ -95,6 +96,7 @@ import {
   ThreadSearchPullRequestNumber,
 } from "../ThreadStatusIndicators";
 import { resolveSnoozePresets, type SnoozePreset } from "../Sidebar.snooze";
+import { useThreadShell } from "../../state/entities";
 import { ProjectFavicon, type ProjectFaviconProject } from "../ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "../ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
@@ -464,8 +466,13 @@ export function SortableThreadRow(
     transition: contextDrag && isDragging ? "transform 150ms ease-out" : transition,
     isDragging: isDragging && !contextDrag,
   };
+  // The sidebar arranges rows from quiet shells, which hold still while a
+  // thread streams; reading the live shell here re-renders only this row.
+  const thread =
+    useThreadShell(scopeThreadRef(rowProps.thread.environmentId, rowProps.thread.id)) ??
+    rowProps.thread;
   // Keyed by variant so a card/slim switch remounts the row.
-  return <SidebarThreadRow key={rowProps.variant} {...rowProps} sortable={bag} />;
+  return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }
 export type SidebarSweepAction = "settle" | "unsettle" | "unsnooze";
 const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
@@ -626,6 +633,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const currentLinkedPr = supportsMultiplePullRequests
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
+  // The server-synced rollup, so rows add no host requests; checks on a merged or closed PR are moot.
+  const prChecksState =
+    currentLinkedPr?.snapshot?.state === "open" ? currentLinkedPr.snapshot.checksState : null;
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
@@ -694,6 +704,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       }
                     : null;
   const isWokeStatus = topStatus?.icon === "woke";
+  // Only states that wait on the user get an edge, so a long list scans as one line.
+  // It borrows the status label's color, so the two always match.
+  const attentionRailClassName =
+    topStatus !== null &&
+    (status === "approval" || status === "input" || status === "failed" || status === "limited")
+      ? topStatus.className
+      : null;
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
@@ -945,6 +962,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       <input
         autoFocus
         value={renamingTitle}
+        dir="auto"
         aria-label="Thread title"
         onChange={(event) => onRenameTitleChange(event.target.value)}
         onFocus={(event) => event.currentTarget.select()}
@@ -958,7 +976,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       <span
         aria-hidden
         className={cn(
-          "min-w-0 flex-1 text-sm transition-[color,opacity] motion-reduce:transition-none",
+          "min-w-0 flex-1 text-start text-sm transition-[color,opacity] motion-reduce:transition-none",
           variant === "card" || !shouldRecede ? "font-medium" : "font-normal",
           variant === "card"
             ? cn(
@@ -983,6 +1001,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               ),
           isRegeneratingTitle && "opacity-55",
         )}
+        dir={textDirection(thread.title)}
       >
         {thread.title}
       </span>
@@ -1005,6 +1024,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         number={pr?.number ?? currentLinkedPr?.number}
         url={pr?.url ?? currentLinkedPr?.url}
         status={prStatus}
+        checksState={prChecksState}
         onOpenList={handlePrListClick}
         onOpenPullRequest={handlePrClick}
       />
@@ -1259,6 +1279,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
+          {attentionRailClassName ? (
+            <span
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-y-2.5 left-0 w-[3px] rounded-r-full bg-current",
+                attentionRailClassName,
+              )}
+            />
+          ) : null}
           <div className="relative z-10 flex h-[3.25rem] flex-col justify-between px-(--sidebar-row-content-inset) py-1.5">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               <span
@@ -1558,7 +1587,8 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
   onSelect: () => void;
   onFileDropThreads: (threadRef: ScopedThreadRef, files: File[]) => void;
 }) {
-  const { thread } = props;
+  const thread =
+    useThreadShell(scopeThreadRef(props.thread.environmentId, props.thread.id)) ?? props.thread;
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: null,

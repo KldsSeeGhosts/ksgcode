@@ -17,7 +17,7 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc-rs --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vp test run --config ../../vite.config.ts --dir ."
   },
   "dependencies": {
@@ -27,7 +27,6 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "vite-plus": "catalog:"
   }

@@ -72,6 +72,14 @@ const removedEnvironmentKeys = new Set([
   "CLOUDSDK_CORE_PROJECT",
   "AGY_ACP_CCPA_PROJECT",
   "AGY_ACP_ENABLE_OAUTH",
+  "AGY_ACP_ENABLE_GATEWAY_AUTH",
+  "AGY_LLM_GATEWAY_URL",
+  "AGY_LLM_GATEWAY_API_KEY",
+  "AGY_LLM_GATEWAY_HEADERS",
+  "AGY_LLM_GATEWAY_MODELS",
+  "AGY_GATEWAY_URL",
+  "AGY_GATEWAY_API_KEY",
+  "AGY_GATEWAY_HEADERS",
   "GEMINI_HOME",
   "AGY_ACP_FORCE_FILE_STORAGE",
   "ANTIGRAVITY_HARNESS_PATH",
@@ -95,6 +103,8 @@ export interface AntigravityAuthConfig {
   readonly apiKey: string;
   readonly gcpProject: string;
   readonly gcpLocation: string;
+  readonly gatewayUrl: string;
+  readonly gatewayModels: string;
 }
 
 const ANTIGRAVITY_PERSONAL_AUTH: AntigravityAuthConfig = {
@@ -102,7 +112,18 @@ const ANTIGRAVITY_PERSONAL_AUTH: AntigravityAuthConfig = {
   apiKey: "",
   gcpProject: "",
   gcpLocation: "",
+  gatewayUrl: "",
+  gatewayModels: "",
 };
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.hostname !== "";
+  } catch {
+    return false;
+  }
+}
 
 export function antigravityAuthUsesBrowser(authMethod: AntigravityAuthMethod): boolean {
   return authMethod === "oauth-personal" || authMethod === "oauth-business";
@@ -118,6 +139,8 @@ export function antigravityAuthLabel(authMethod: AntigravityAuthMethod): string 
       return "Gemini API key";
     case "agent-platform":
       return "Agent Platform";
+    case "gateway":
+      return "AI API gateway";
   }
 }
 
@@ -135,6 +158,10 @@ export function antigravityAuthConfigIssue(auth: AntigravityAuthConfig): string 
       return auth.apiKey || (auth.gcpProject && auth.gcpLocation)
         ? null
         : "Agent Platform needs an API key, or a GCP project and location, in the Antigravity provider settings.";
+    case "gateway":
+      return isHttpUrl(auth.gatewayUrl)
+        ? null
+        : "Enter an http or https gateway URL in the Antigravity provider settings.";
   }
 }
 
@@ -209,19 +236,27 @@ function antigravityEnvironment(
   }
   // The agent prefers GOOGLE_API_KEY over the GCP pair for Agent Platform, so the pair goes through
   // settings.json instead of the environment.
-  const credential =
+  const authEnvironment =
     auth.authMethod === "gemini-api-key" && auth.apiKey
       ? { GEMINI_API_KEY: auth.apiKey }
       : auth.authMethod === "agent-platform" && auth.apiKey
         ? { GOOGLE_API_KEY: auth.apiKey }
-        : {};
+        : auth.authMethod === "gateway"
+          ? {
+              // The runtime keeps its gateway method behind this rollout flag.
+              AGY_ACP_ENABLE_GATEWAY_AUTH: "1",
+              AGY_LLM_GATEWAY_URL: auth.gatewayUrl,
+              ...(auth.apiKey ? { AGY_LLM_GATEWAY_API_KEY: auth.apiKey } : {}),
+              ...(auth.gatewayModels ? { AGY_LLM_GATEWAY_MODELS: auth.gatewayModels } : {}),
+            }
+          : {};
   // It unpacks about 1 GB into the system temp directory per launch and a force
   // kill leaves that behind. Point it at a T3-owned directory so the driver can
   // reclaim the space.
   const tempDirectory = runtimeTempDirectory ?? profile.tempDirectory;
   return {
     ...environment,
-    ...credential,
+    ...authEnvironment,
     ...(profile.caBundlePath !== undefined &&
     baseEnv.SSL_CERT_FILE === undefined &&
     baseEnv.SSL_CERT_DIR === undefined
@@ -262,10 +297,13 @@ const linkAntigravityUserSkills = Effect.fn("linkAntigravityUserSkills")(functio
         Effect.map((value): string | undefined => path.resolve(path.dirname(link), value)),
         Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined),
       );
-      if (existing === target) return;
+      // Antigravity 1.4 creates these directories itself and fails on a dangling link.
+      const targetExists = yield* fs.exists(target);
+      if (existing === target && targetExists) return;
       if (existing !== undefined) {
         yield* fs.remove(link);
       }
+      if (!targetExists) return;
       yield* fs.makeDirectory(path.dirname(link), { recursive: true });
       yield* Effect.tryPromise(() =>
         NodeFSP.symlink(target, link, input.platform === "win32" ? "junction" : "dir"),
