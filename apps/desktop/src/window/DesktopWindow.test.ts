@@ -19,6 +19,14 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Electron from "electron";
 import { vi } from "vite-plus/test";
 
+const { setWindowsActiveAppearance } = vi.hoisted(() => ({
+  setWindowsActiveAppearance: vi.fn(),
+}));
+
+vi.mock("./WindowsGlass.ts", () => ({
+  loadWindowsGlass: async () => setWindowsActiveAppearance,
+}));
+
 vi.mock("node:os", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:os")>()),
   release: () => "10.0.22621",
@@ -106,6 +114,7 @@ function makeFakeBrowserWindow() {
     focus: vi.fn(),
     getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
     getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1100, height: 780 })),
+    getNativeWindowHandle: vi.fn(() => Buffer.alloc(8, 1)),
     isDestroyed: vi.fn(() => false),
     isFullScreen: vi.fn(() => false),
     isMaximized: vi.fn(() => false),
@@ -496,8 +505,13 @@ describe("DesktopWindow", () => {
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        setWindowsActiveAppearance.mockClear();
         yield* desktopWindow.createMain;
         assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "mica");
+        assert.deepEqual(setWindowsActiveAppearance.mock.lastCall, [
+          fake.window.getNativeWindowHandle(),
+          true,
+        ]);
         yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "liquid" as const }));
         yield* desktopWindow.syncAppearance;
         assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "acrylic");
@@ -515,10 +529,14 @@ describe("DesktopWindow", () => {
         }));
         yield* desktopWindow.syncAppearance;
         assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "none");
+        assert.equal(setWindowsActiveAppearance.mock.lastCall?.[1], false);
         assert.equal(yield* desktopWindow.getWindowMaterial, "solid");
         yield* Ref.update(settings, (value) => ({ ...value, glassOpacity: 80 }));
         yield* desktopWindow.syncAppearance;
         assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "acrylic");
+        assert.equal(setWindowsActiveAppearance.mock.lastCall?.[1], true);
+        assert.equal(setWindowsActiveAppearance.mock.calls.length, 5);
+        assert.equal(vi.mocked(fake.window.focus).mock.calls.length, 0);
         assert.equal(yield* desktopWindow.getWindowMaterial, "liquid");
       }).pipe(
         Effect.provide(

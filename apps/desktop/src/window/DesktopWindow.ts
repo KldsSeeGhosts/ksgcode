@@ -45,6 +45,7 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
 import { resolveWindowMaterial, supportsWindowMaterial } from "./windowMaterial.ts";
+import { loadWindowsGlass } from "./WindowsGlass.ts";
 
 const TITLEBAR_HEIGHT = 40;
 // Matches --workspace-topbar-height in apps/web/src/index.css. Native macOS
@@ -385,6 +386,23 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
+    if (
+      nativeChanged &&
+      environment.platform === "win32" &&
+      nativeMaterialSupported &&
+      (previous !== "solid" || applied !== "solid")
+    ) {
+      yield* Effect.tryPromise(async () => {
+        const setActiveAppearance = await loadWindowsGlass();
+        if (!window.isDestroyed()) {
+          setActiveAppearance(window.getNativeWindowHandle(), applied !== "solid");
+        }
+      }).pipe(
+        Effect.catch((cause) =>
+          logWindowWarning("could not keep Windows glass active while unfocused", { cause }),
+        ),
+      );
+    }
     yield* Ref.set(windowMaterialRef, applied);
     if (!force && previous !== applied && !window.isDestroyed()) {
       window.webContents.send(WINDOW_MATERIAL_CHANNEL, applied);
