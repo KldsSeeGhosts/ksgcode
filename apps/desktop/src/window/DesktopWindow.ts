@@ -466,7 +466,12 @@ export const make = Effect.gen(function* () {
       minHeight: 620,
       show: false,
       autoHideMenuBar: true,
-      ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
+      // Electron selects the compositor's translucent backing at construction.
+      // setVibrancy alone cannot change it later, leaving stale pixels in glass
+      // regions. syncMainWindowMaterial removes vibrancy before showing Solid.
+      ...(environment.platform === "darwin"
+        ? { disableAutoHideCursor: true, vibrancy: "sidebar" as const }
+        : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
       title: environment.displayName,
