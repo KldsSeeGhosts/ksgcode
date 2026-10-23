@@ -39,4 +39,19 @@ describe("DeepSeek Harness launch", () => {
       showInteractionModeToggle: false,
     });
   });
+
+  it("applies the native bridge after user patches without replacing their model settings", () => {
+    const settings = deepseekRegistrySettings(
+      decodeSettings({ enabled: true, launchArgs: '--patch "C:\\Profiles\\cpa.yml"' }),
+      "C:\\T3 Home\\tools\\deepseek\\native.yml",
+    );
+    expect(settings.commandArgs).toEqual([
+      "--profile",
+      "acp",
+      "--patch",
+      "C:\\Profiles\\cpa.yml",
+      "--patch",
+      "C:\\T3 Home\\tools\\deepseek\\native.yml",
+    ]);
+  });
 });

@@ -66,7 +66,13 @@ reasoning selection, and the context meter. Harness runs its tools under its own
 shows **Supervised** and forwards the approval requests Harness sends. Harness persists that
 policy in each native session, so changing its defaults does not change an existing session.
 
-Harness's ACP profile does not expose native plan cards, slash commands, manual compaction,
+Use **Compact** from the context meter, or send `/compact`, to run Harness's native compaction
+without replacing the session. The context meter refreshes when it finishes, and the condensed
+history remains available when you resume the conversation. Stop cancels an active compaction.
+If the session has no compactable history, KSG reports that instead of claiming it compacted.
+This requires Harness's standard ACP profile with its compaction backend enabled.
+
+Harness's ACP profile does not expose native plan cards, other slash commands,
 conversation forks, or transcript replay. KSG uses portable context for forks and starts a fresh
 native conversation after checkpoint rollback. App-owned title and commit-message generation
 requires another provider.
