@@ -91,9 +91,7 @@ export function DeviceToolsPanel(props: {
   const isIos = device.platform === "ios";
 
   return (
-    <div
-      className={cn("flex min-h-0 flex-col border-border bg-background text-sm", props.className)}
-    >
+    <div className={cn("flex min-h-0 flex-col border-border bg-pane text-sm", props.className)}>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
         <span className="font-medium">Tools</span>
         {pending ? <Spinner size="sm" /> : null}

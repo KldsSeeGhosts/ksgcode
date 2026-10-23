@@ -125,7 +125,7 @@ export function PullRequestDetailGhost({
       role="status"
       aria-label="Loading pull request"
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden bg-background",
+        "flex h-full min-h-0 flex-col overflow-hidden bg-pane",
         !seed && "motion-safe:animate-skeleton",
       )}
     >
@@ -336,7 +336,7 @@ export function PullRequestDetailGhost({
         </section>
 
         <section>
-          <div className="sticky top-0 z-10 flex w-full items-center bg-background pr-4">
+          <div className="sticky top-0 z-10 flex w-full items-center pane-sticky pr-4">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               <span>Description</span>
               <ChevronRightIcon

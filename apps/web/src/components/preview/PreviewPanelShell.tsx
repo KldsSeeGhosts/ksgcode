@@ -137,7 +137,7 @@ function PreviewPanelShellFrame(
     <div
       ref={hostRef}
       className={cn(
-        "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-background",
+        "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-pane",
         isInline
           ? maximized
             ? // Maximized, the panel's left edge meets the sidebar's own border

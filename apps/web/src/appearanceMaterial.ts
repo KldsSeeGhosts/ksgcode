@@ -17,15 +17,21 @@ export function resolveAppearanceMaterial(input: {
       : input.material;
   const liquid = material === "liquid";
   const glass = material !== "solid";
+  // One theme tint covers the whole window. Every pane shares it so the
+  // wallpaper reads as one smoked sheet instead of a patchwork of densities.
+  const shellOpacity = !glass
+    ? 100
+    : liquid
+      ? Math.max(36, opacity - 14)
+      : Math.max(48, opacity - 10);
   return {
     material,
     native: input.desktop && glass,
     opacity,
     glassOpacity: liquid ? Math.max(50, 100 - (100 - opacity) * 1.4) : opacity,
-    chromeOpacity: glass
-      ? Math.max(liquid ? 24 : 42, 100 - (100 - opacity) * (liquid ? 3.3 : 2.5))
-      : 100,
-    readingOpacity: glass ? Math.max(82, 100 - (100 - opacity) * (liquid ? 0.8 : 0.4)) : 100,
+    shellOpacity,
+    // Light glass needs more cover for dark text to stay crisp over busy wallpaper.
+    lightShellOpacity: Math.min(glass ? 96 : 100, shellOpacity + 10),
     blur: opacity === 100 ? "0px" : liquid ? "28px" : glass ? "20px" : null,
     saturation: liquid ? "1.6" : glass ? "1.2" : null,
   };
@@ -41,8 +47,8 @@ export function applyAppearanceMaterial(
   if (appearance.native) root.dataset.nativeWindowMaterial = "true";
   else delete root.dataset.nativeWindowMaterial;
   root.style.setProperty("--glass-opacity", `${appearance.glassOpacity}%`);
-  root.style.setProperty("--window-chrome-opacity", `${appearance.chromeOpacity}%`);
-  root.style.setProperty("--window-reading-opacity", `${appearance.readingOpacity}%`);
+  root.style.setProperty("--window-shell-opacity", `${appearance.shellOpacity}%`);
+  root.style.setProperty("--window-shell-opacity-light", `${appearance.lightShellOpacity}%`);
   const filterProperties = [
     ["--glass-blur", appearance.blur],
     ["--glass-saturation", appearance.saturation],

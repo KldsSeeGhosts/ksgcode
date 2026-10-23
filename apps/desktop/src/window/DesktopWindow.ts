@@ -63,6 +63,10 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   });
 }
 
+// under-window samples the desktop with the least AppKit coloration, so the
+// renderer's single theme tint decides the glass color rather than the sidebar
+// material's own white or grey fill.
+const MACOS_GLASS_VIBRANCY = "under-window" as const;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
@@ -353,7 +357,7 @@ export const make = Effect.gen(function* () {
     const applied = yield* Effect.try({
       try: () => {
         if (nativeChanged && environment.platform === "darwin") {
-          window.setVibrancy(material === "solid" ? null : "sidebar");
+          window.setVibrancy(material === "solid" ? null : MACOS_GLASS_VIBRANCY);
         } else if (nativeChanged && environment.platform === "win32" && nativeMaterialSupported) {
           window.setBackgroundMaterial(
             material === "solid" ? "none" : material === "liquid" ? "acrylic" : "mica",
@@ -475,8 +479,14 @@ export const make = Effect.gen(function* () {
       // Electron selects the compositor's translucent backing at construction.
       // setVibrancy alone cannot change it later, leaving stale pixels in glass
       // regions. syncMainWindowMaterial removes vibrancy before showing Solid.
+      // An active effect keeps the glass from flattening to grey when the
+      // window loses focus, which would make every pane's tint shift at once.
       ...(environment.platform === "darwin"
-        ? { disableAutoHideCursor: true, vibrancy: "sidebar" as const }
+        ? {
+            disableAutoHideCursor: true,
+            vibrancy: MACOS_GLASS_VIBRANCY,
+            visualEffectState: "active" as const,
+          }
         : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,

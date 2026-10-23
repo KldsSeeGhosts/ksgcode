@@ -11,15 +11,17 @@ const defaults = {
 } as const;
 
 describe("appearance material", () => {
-  it("keeps the reading layer dense while making chrome clearer", () => {
+  it("tints the whole window with one shell density, clearer for liquid than frosted", () => {
     const result = resolveAppearanceMaterial(defaults);
     expect(result.material).toBe("liquid");
     expect(result.native).toBe(true);
-    expect(result.chromeOpacity).toBeCloseTo(34);
-    expect(result.readingOpacity).toBe(84);
+    expect(result.shellOpacity).toBe(66);
     expect(result.glassOpacity).toBe(72);
-    expect(result.chromeOpacity).toBeLessThan(result.readingOpacity);
-    expect(resolveAppearanceMaterial({ ...defaults, opacity: 40 }).readingOpacity).toBe(82);
+    expect(resolveAppearanceMaterial({ ...defaults, material: "frosted" }).shellOpacity).toBe(70);
+    expect(resolveAppearanceMaterial({ ...defaults, opacity: 40 }).shellOpacity).toBe(36);
+    expect(
+      resolveAppearanceMaterial({ ...defaults, material: "frosted", opacity: 40 }).shellOpacity,
+    ).toBe(48);
   });
 
   it("keeps existing glass behavior when the window material is solid", () => {
@@ -54,8 +56,7 @@ describe("appearance material", () => {
         material: "solid",
         native: false,
         glassOpacity: 100,
-        chromeOpacity: 100,
-        readingOpacity: 100,
+        shellOpacity: 100,
         blur: "0px",
       });
     }

@@ -323,7 +323,7 @@ export function DeviceStreamView(props: {
     <div
       className={cn(
         "relative flex size-full min-h-0 min-w-0",
-        props.allowPhoneView ? "bg-background" : "bg-black/90",
+        props.allowPhoneView ? "bg-pane" : "bg-black/90",
       )}
     >
       {props.renderControls ? (

@@ -1778,7 +1778,7 @@ export default function ThreadTerminalDrawer({
         data-thread-terminal-drawer
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
         className={cn(
-          "relative flex min-w-0 flex-col overflow-hidden bg-background",
+          "relative flex min-w-0 flex-col overflow-hidden bg-pane",
           isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
         )}
         style={isPanel ? undefined : { height: `${drawerHeight}px` }}
@@ -1814,7 +1814,7 @@ export default function ThreadTerminalDrawer({
       data-thread-terminal-drawer
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
       className={cn(
-        "relative flex min-w-0 flex-col overflow-hidden bg-background",
+        "relative flex min-w-0 flex-col overflow-hidden bg-pane",
         isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
       )}
       style={isPanel ? undefined : { height: `${drawerHeight}px` }}
@@ -1832,7 +1832,7 @@ export default function ThreadTerminalDrawer({
 
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
-          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
+          <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 pane-sticky shadow-xs">
             <TerminalActionButton
               disabled={!canOperateTerminal}
               className={`p-1 text-foreground/90 transition-colors ${

@@ -1044,7 +1044,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     footer === null
   ) {
     if (hideEmptyPlaceholder) {
-      return <div className="h-full min-h-0 bg-background" data-timeline-loading="true" />;
+      return <div className="h-full min-h-0 bg-pane" data-timeline-loading="true" />;
     }
     return (
       <div

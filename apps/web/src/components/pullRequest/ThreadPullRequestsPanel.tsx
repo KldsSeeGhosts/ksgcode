@@ -282,7 +282,7 @@ function LinkRowImpl({
       ) : null}
       <span
         className={cn(
-          "absolute right-0 bottom-0.5 flex items-center rounded-r-md bg-background pr-1 pl-5",
+          "absolute right-0 bottom-0.5 flex items-center rounded-r-md pane-sticky pr-1 pl-5",
           "[mask-image:linear-gradient(to_right,transparent,black_1rem)]",
           // Hidden means untouchable too: on a touch screen there is no hover, and an invisible
           // layer over the right of the row would otherwise swallow the tap meant for the link.
