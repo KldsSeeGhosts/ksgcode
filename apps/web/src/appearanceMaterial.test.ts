@@ -15,18 +15,18 @@ describe("appearance material", () => {
     const result = resolveAppearanceMaterial(defaults);
     expect(result.material).toBe("liquid");
     expect(result.native).toBe(true);
-    expect(result).toMatchObject({ shellOpacity: 50, lightShellOpacity: 76, glassOpacity: 72 });
+    expect(result).toMatchObject({ shellOpacity: 58, lightShellOpacity: 68, glassOpacity: 72 });
     expect(resolveAppearanceMaterial({ ...defaults, material: "frosted" })).toMatchObject({
-      shellOpacity: 60,
-      lightShellOpacity: 80,
+      shellOpacity: 66,
+      lightShellOpacity: 74,
     });
     expect(resolveAppearanceMaterial({ ...defaults, opacity: 40 })).toMatchObject({
-      shellOpacity: 28,
-      lightShellOpacity: 46,
+      shellOpacity: 32,
+      lightShellOpacity: 40,
     });
     expect(
       resolveAppearanceMaterial({ ...defaults, material: "frosted", opacity: 95 }),
-    ).toMatchObject({ shellOpacity: 75, lightShellOpacity: 95 });
+    ).toMatchObject({ shellOpacity: 81, lightShellOpacity: 89 });
   });
 
   it("keeps existing glass behavior when the window material is solid", () => {

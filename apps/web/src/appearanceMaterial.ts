@@ -24,12 +24,12 @@ export function resolveAppearanceMaterial(input: {
   // turns it to mud, so dark needs far less to show the same color.
   const lightShellOpacity = !glass
     ? 100
-    : Math.min(96, liquid ? Math.max(46, opacity - 4) : Math.max(58, opacity));
+    : Math.min(96, liquid ? Math.max(40, opacity - 12) : Math.max(52, opacity - 6));
   const shellOpacity = !glass
     ? 100
     : liquid
-      ? Math.max(28, opacity - 30)
-      : Math.max(40, opacity - 20);
+      ? Math.max(32, opacity - 22)
+      : Math.max(44, opacity - 14);
   return {
     material,
     native: input.desktop && glass,
