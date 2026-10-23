@@ -1,7 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
-import { DesktopSnapShotId, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
+import {
+  type ClientSettings,
+  DesktopSnapShotId,
+  DEFAULT_CLIENT_SETTINGS,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -14,6 +18,11 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as Electron from "electron";
 import { vi } from "vite-plus/test";
+
+vi.mock("node:os", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:os")>()),
+  release: () => "10.0.22621",
+}));
 
 vi.mock("electron", async (importOriginal) => ({
   ...(await importOriginal<typeof import("electron")>()),
@@ -147,6 +156,7 @@ function makeFakeBrowserWindow() {
     setOpacity: window.setOpacity,
     setBackgroundColor: window.setBackgroundColor,
     setVibrancy: window.setVibrancy,
+    setBackgroundMaterial: window.setBackgroundMaterial,
     webContentsListeners,
     webContentsOnce: webContents.once,
     windowListeners,
@@ -198,17 +208,20 @@ const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 } satisfies ElectronTheme.ElectronTheme["Service"]);
 
-const layerDesktopEnvironment = DesktopEnvironment.layer(environmentInput).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      NodeServices.layer,
-      DesktopConfig.layerTest({
-        T3CODE_PORT: "3773",
-        VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
-      }),
+const makeEnvironmentLayer = (platform: NodeJS.Platform = environmentInput.platform) =>
+  DesktopEnvironment.layer({ ...environmentInput, platform }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        DesktopConfig.layerTest({
+          T3CODE_PORT: "3773",
+          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+        }),
+      ),
     ),
-  ),
-);
+  );
+
+const layerDesktopEnvironment = makeEnvironmentLayer();
 
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
@@ -236,6 +249,7 @@ function layerTest(input: {
   readonly focusedWindow?: Electron.BrowserWindow;
   readonly clientSettings?: DesktopClientSettings.DesktopClientSettings["Service"];
   readonly shouldUseOpaqueBackgrounds?: Effect.Effect<boolean>;
+  readonly platform?: NodeJS.Platform;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -305,7 +319,7 @@ function layerTest(input: {
           recordMetrics: () => Effect.void,
           shutdown: Effect.void,
         }),
-        layerDesktopEnvironment,
+        input.platform ? makeEnvironmentLayer(input.platform) : layerDesktopEnvironment,
         layerDesktopAppSettings,
         input.clientSettings
           ? Layer.succeed(DesktopClientSettings.DesktopClientSettings, input.clientSettings)
@@ -471,6 +485,58 @@ const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111"
 const captureTwo = DesktopSnapShotId.make("22222222-2222-4222-8222-222222222222");
 
 describe("DesktopWindow", () => {
+  it.effect("switches Windows glass backdrops and restores them after full opacity", () =>
+    Effect.gen(function* () {
+      const fake = makeFakeBrowserWindow();
+      const settings = yield* Ref.make<ClientSettings>({
+        ...DEFAULT_CLIENT_SETTINGS,
+        windowMaterial: "frosted",
+      });
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.createMain;
+        assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "mica");
+        yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "liquid" as const }));
+        yield* desktopWindow.syncAppearance;
+        assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "acrylic");
+        const nativeCalls = fake.setBackgroundMaterial.mock.calls.length;
+        yield* Ref.update(settings, (value) => ({ ...value, glassOpacity: 60 }));
+        yield* desktopWindow.syncAppearance;
+        assert.equal(fake.setBackgroundMaterial.mock.calls.length, nativeCalls);
+        yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "frosted" as const }));
+        yield* desktopWindow.syncAppearance;
+        assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "mica");
+        yield* Ref.update(settings, (value) => ({
+          ...value,
+          windowMaterial: "liquid" as const,
+          glassOpacity: 100,
+        }));
+        yield* desktopWindow.syncAppearance;
+        assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "none");
+        assert.equal(yield* desktopWindow.getWindowMaterial, "solid");
+        yield* Ref.update(settings, (value) => ({ ...value, glassOpacity: 80 }));
+        yield* desktopWindow.syncAppearance;
+        assert.equal(fake.setBackgroundMaterial.mock.lastCall?.[0], "acrylic");
+        assert.equal(yield* desktopWindow.getWindowMaterial, "liquid");
+      }).pipe(
+        Effect.provide(
+          layerTest({
+            window: fake.window,
+            createCount,
+            mainWindow,
+            platform: "win32",
+            clientSettings: {
+              get: Ref.get(settings).pipe(Effect.asSome),
+              set: () => Effect.void,
+            },
+          }),
+        ),
+      );
+    }),
+  );
+
   it.effect("applies a saved material and restores a solid window without restarting", () =>
     Effect.gen(function* () {
       const fake = makeFakeBrowserWindow();

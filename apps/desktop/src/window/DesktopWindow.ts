@@ -345,13 +345,19 @@ export const make = Effect.gen(function* () {
       yield* electronTheme.shouldUseOpaqueBackgrounds,
     );
     const previous = yield* Ref.get(windowMaterialRef);
-    const nativeChanged = force || (previous === "solid") !== (material === "solid");
+    const nativeChanged =
+      force ||
+      (environment.platform === "win32"
+        ? previous !== material
+        : (previous === "solid") !== (material === "solid"));
     const applied = yield* Effect.try({
       try: () => {
         if (nativeChanged && environment.platform === "darwin") {
           window.setVibrancy(material === "solid" ? null : "sidebar");
         } else if (nativeChanged && environment.platform === "win32" && nativeMaterialSupported) {
-          window.setBackgroundMaterial(material === "solid" ? "none" : "mica");
+          window.setBackgroundMaterial(
+            material === "solid" ? "none" : material === "liquid" ? "acrylic" : "mica",
+          );
         }
         window.setBackgroundColor(
           material === "solid" ? getInitialWindowBackgroundColor(shouldUseDarkColors) : "#00000000",

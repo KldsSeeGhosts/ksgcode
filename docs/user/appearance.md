@@ -16,6 +16,7 @@ those modes. Customize these shortcuts under **Settings → Keybindings**.
 
 On desktop, **Settings → Appearance → Window material** offers Solid, Frosted, and Liquid glass.
 Glass materials let the desktop tint the frame while keeping the conversation readable.
+On Windows, Frosted uses a subtle wallpaper tint; Liquid glass blurs the desktop and windows behind it.
 Native translucency requires macOS or Windows 11 22H2 or later; other systems keep a solid window.
 Browsers apply glass only within the page, not through to the desktop. The choice is saved on
 this client and does not change connected environments or native mobile.
