@@ -8,6 +8,7 @@ const defaults = {
   supportsBackdropFilter: true,
   desktop: true,
   nativeMaterial: "liquid",
+  nativeMaterialTinted: false,
 } as const;
 
 describe("appearance material", () => {
@@ -22,6 +23,17 @@ describe("appearance material", () => {
     expect(
       resolveAppearanceMaterial({ ...defaults, material: "frosted", opacity: 40 }).shellOpacity,
     ).toBe(48);
+  });
+
+  it("lightens the page tint where the OS material already frosts the backdrop", () => {
+    const mac = resolveAppearanceMaterial({ ...defaults, nativeMaterialTinted: true });
+    expect(mac.shellOpacity).toBe(46);
+    expect(mac.lightShellOpacity).toBe(46);
+    expect(resolveAppearanceMaterial(defaults).lightShellOpacity).toBe(76);
+    expect(
+      resolveAppearanceMaterial({ ...defaults, nativeMaterialTinted: true, desktop: false })
+        .shellOpacity,
+    ).toBe(66);
   });
 
   it("keeps existing glass behavior when the window material is solid", () => {

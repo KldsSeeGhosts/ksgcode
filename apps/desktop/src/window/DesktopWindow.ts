@@ -63,10 +63,9 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   });
 }
 
-// under-window samples the desktop with the least AppKit coloration, so the
-// renderer's single theme tint decides the glass color rather than the sidebar
-// material's own white or grey fill.
-const MACOS_GLASS_VIBRANCY = "under-window" as const;
+// The most translucent adaptive material. AppKit still paints its own frost
+// under the page, so the renderer lightens its tint on macOS to match.
+const MACOS_GLASS_VIBRANCY = "sidebar" as const;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";

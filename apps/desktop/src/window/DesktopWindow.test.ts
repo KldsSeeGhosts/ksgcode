@@ -547,7 +547,7 @@ describe("DesktopWindow", () => {
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.createMain;
-        assert.equal(createdWindowOptions[0]?.vibrancy, "under-window");
+        assert.equal(createdWindowOptions[0]?.vibrancy, "sidebar");
         assert.equal(createdWindowOptions[0]?.visualEffectState, "active");
         assert.equal(yield* desktopWindow.getWindowMaterial, "solid");
         assert.equal(fake.setVibrancy.mock.lastCall?.[0], null);
@@ -556,7 +556,7 @@ describe("DesktopWindow", () => {
         yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "frosted" as const }));
         yield* desktopWindow.syncAppearance;
         assert.equal(yield* desktopWindow.getWindowMaterial, "frosted");
-        assert.equal(fake.setVibrancy.mock.lastCall?.[0], "under-window");
+        assert.equal(fake.setVibrancy.mock.lastCall?.[0], "sidebar");
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#00000000");
         assert.equal(yield* Ref.get(createCount), 1);
       }).pipe(
@@ -598,7 +598,7 @@ describe("DesktopWindow", () => {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.createMain;
         assert.equal(yield* desktopWindow.getWindowMaterial, "liquid");
-        assert.equal(fake.setVibrancy.mock.lastCall?.[0], "under-window");
+        assert.equal(fake.setVibrancy.mock.lastCall?.[0], "sidebar");
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#00000000");
         yield* Ref.update(settings, (value) => ({ ...value, glassOpacity: 100 }));
         yield* desktopWindow.syncAppearance;
