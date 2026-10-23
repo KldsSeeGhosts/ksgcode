@@ -24,7 +24,7 @@ vi.mock("node:os", async (importOriginal) => ({
   release: () => "10.0.22621",
 }));
 
-vi.mock("./MacosGlassBackdrop.ts", () => ({ stripMacosVibrancyFrost: vi.fn(async () => 1) }));
+vi.mock("./MacosWindowBlur.ts", () => ({ setMacosWindowBlur: vi.fn(async () => {}) }));
 
 vi.mock("electron", async (importOriginal) => ({
   ...(await importOriginal<typeof import("electron")>()),
@@ -57,7 +57,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import { SNAP_SHOT_EVENT_CHANNEL } from "../ipc/channels.ts";
-import { stripMacosVibrancyFrost } from "./MacosGlassBackdrop.ts";
+import { setMacosWindowBlur } from "./MacosWindowBlur.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -124,7 +124,6 @@ function makeFakeBrowserWindow() {
     }),
     restore: vi.fn(),
     setBackgroundColor: vi.fn(),
-    setVibrancy: vi.fn(),
     setBackgroundMaterial: vi.fn(),
     setAutoHideCursor: vi.fn(),
     setFullScreen: vi.fn(),
@@ -158,7 +157,6 @@ function makeFakeBrowserWindow() {
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
     setBackgroundColor: window.setBackgroundColor,
-    setVibrancy: window.setVibrancy,
     setBackgroundMaterial: window.setBackgroundMaterial,
     webContentsListeners,
     webContentsOnce: webContents.once,
@@ -540,7 +538,7 @@ describe("DesktopWindow", () => {
     }),
   );
 
-  it.effect("creates a vibrancy-capable compositor even when starting solid", () =>
+  it.effect("creates a translucent-capable window even when starting solid", () =>
     Effect.gen(function* () {
       const fake = makeFakeBrowserWindow();
       const settings = yield* Ref.make({ ...DEFAULT_CLIENT_SETTINGS });
@@ -550,19 +548,15 @@ describe("DesktopWindow", () => {
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.createMain;
-        assert.equal(createdWindowOptions[0]?.vibrancy, "sidebar");
-        assert.equal(createdWindowOptions[0]?.visualEffectState, "active");
+        assert.equal(createdWindowOptions[0]?.transparent, true);
         assert.equal(yield* desktopWindow.getWindowMaterial, "solid");
-        assert.equal(fake.setVibrancy.mock.lastCall?.[0], null);
+        assert.equal(vi.mocked(setMacosWindowBlur).mock.lastCall?.[1], 0);
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#ffffff");
-        const strips = vi.mocked(stripMacosVibrancyFrost).mock.calls.length;
 
         yield* Ref.update(settings, (value) => ({ ...value, windowMaterial: "frosted" as const }));
         yield* desktopWindow.syncAppearance;
         assert.equal(yield* desktopWindow.getWindowMaterial, "frosted");
-        assert.equal(fake.setVibrancy.mock.lastCall?.[0], "sidebar");
-        // Without stripping, AppKit's frost hides the desktop behind flat grey.
-        assert.equal(vi.mocked(stripMacosVibrancyFrost).mock.calls.length, strips + 1);
+        assert.equal(vi.mocked(setMacosWindowBlur).mock.lastCall?.[1], 24);
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#00000000");
         assert.equal(yield* Ref.get(createCount), 1);
       }).pipe(
@@ -603,20 +597,21 @@ describe("DesktopWindow", () => {
       yield* Effect.gen(function* () {
         const desktopWindow = yield* DesktopWindow.DesktopWindow;
         yield* desktopWindow.createMain;
+        const blur = vi.mocked(setMacosWindowBlur).mock;
         assert.equal(yield* desktopWindow.getWindowMaterial, "liquid");
-        assert.equal(fake.setVibrancy.mock.lastCall?.[0], "sidebar");
+        assert.equal(blur.lastCall?.[1], 24);
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#00000000");
         yield* Ref.update(settings, (value) => ({ ...value, glassOpacity: 100 }));
         yield* desktopWindow.syncAppearance;
         assert.equal(yield* desktopWindow.getWindowMaterial, "solid");
-        assert.equal(fake.setVibrancy.mock.lastCall?.[0], null);
+        assert.equal(blur.lastCall?.[1], 0);
         assert.equal(fake.setBackgroundColor.mock.lastCall?.[0], "#ffffff");
         yield* Ref.update(settings, (value) => ({ ...value, glassOpacity: 80 }));
         yield* desktopWindow.syncAppearance;
         assert.equal(yield* desktopWindow.getWindowMaterial, "liquid");
-        const nativeCalls = fake.setVibrancy.mock.calls.length;
+        const nativeCalls = blur.calls.length;
         yield* desktopWindow.syncAppearance;
-        assert.equal(fake.setVibrancy.mock.calls.length, nativeCalls);
+        assert.equal(blur.calls.length, nativeCalls);
       }).pipe(Effect.provide(layer));
     }),
   );
@@ -624,9 +619,7 @@ describe("DesktopWindow", () => {
   it.effect("falls back to solid when the native material fails", () =>
     Effect.gen(function* () {
       const fake = makeFakeBrowserWindow();
-      fake.setVibrancy.mockImplementation(() => {
-        throw new Error("Native backdrop unavailable");
-      });
+      vi.mocked(setMacosWindowBlur).mockRejectedValueOnce(new Error("Native blur unavailable"));
       const createCount = yield* Ref.make(0);
       const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
       yield* Effect.gen(function* () {
