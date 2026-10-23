@@ -1735,6 +1735,51 @@ describe("PreviewManager", () => {
     }).pipe(Effect.provide(managerLayer()), Effect.scoped),
   );
 
+  effectIt.effect("keeps a remotely captured native tab unthrottled until its relay releases", () =>
+    Effect.gen(function* () {
+      const host = yield* DesktopBrowserHost.DesktopBrowserHost;
+      const manager = yield* PreviewManager.PreviewManager;
+      const serverTab = { threadId: "thread-stream", tabId: "server-stream" };
+      const capturePage = vi.fn(async () => ({
+        toJPEG: () => Buffer.from("jpeg"),
+        getSize: () => ({ width: 100, height: 80 }),
+      }));
+      const contents = Object.assign(makeTestPreviewWebContents(capturePage), {
+        isDevToolsOpened: () => false,
+        getUserAgent: () => "Electron",
+      });
+      fromId.mockReturnValue(contents);
+      const states = yield* Queue.unbounded<PreviewManager.PreviewTabState>();
+      yield* manager.subscribeStateChanges((_, state) => Queue.offer(states, state));
+      const attached = yield* host.events.pipe(
+        Stream.take(1),
+        Stream.runDrain,
+        Effect.forkScoped({ startImmediately: true }),
+      );
+      yield* manager.createTab("tab_stream", { serverTab });
+      yield* manager.registerWebview("tab_stream", contents.id);
+      yield* Fiber.join(attached);
+      yield* Queue.clear(states);
+      yield* host.handleCommandLine(
+        JSON.stringify({
+          type: "cdp",
+          ...serverTab,
+          message: JSON.stringify({
+            id: 1,
+            method: "Page.startScreencast",
+            sessionId: "t3-preview-page",
+          }),
+        }),
+      );
+      expect((yield* Queue.take(states)).capturing).toBe(true);
+      expect(contents.setBackgroundThrottling).toHaveBeenLastCalledWith(false);
+      expect(capturePage).not.toHaveBeenCalled();
+      yield* host.handleCommandLine(JSON.stringify({ type: "release", ...serverTab }));
+      expect((yield* Queue.take(states)).capturing).toBe(false);
+      expect(contents.setBackgroundThrottling).toHaveBeenLastCalledWith(true);
+    }).pipe(Effect.provide(managerLayer()), Effect.scoped),
+  );
+
   effectIt.effect("discards a screenshot that resolves after its guest is replaced", () =>
     withManager((manager) =>
       Effect.gen(function* () {

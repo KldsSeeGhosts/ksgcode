@@ -46,6 +46,7 @@ interface AttachedTab {
   downloadDirectory: string | null;
   pendingDownloadGuid: string | null;
   agentInputAt: number;
+  capturing: boolean;
   readonly onMessage: (
     event: Electron.Event,
     method: string,
@@ -69,6 +70,10 @@ export class DesktopBrowserHost extends Context.Service<
       readonly x: number;
       readonly y: number;
     }>;
+    readonly captures: Stream.Stream<{
+      readonly key: DesktopBrowserTabKey;
+      readonly active: boolean;
+    }>;
   }
 >()("@t3tools/desktop/preview/DesktopBrowserHost") {}
 
@@ -80,9 +85,18 @@ export const make = Effect.gen(function* () {
     readonly x: number;
     readonly y: number;
   }>(16);
+  const captures = yield* PubSub.unbounded<{
+    readonly key: DesktopBrowserTabKey;
+    readonly active: boolean;
+  }>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
+  const setCaptureActive = (tab: AttachedTab, active: boolean) => {
+    if (tab.capturing === active) return;
+    tab.capturing = active;
+    runFork(PubSub.publish(captures, { key: tab.key, active }));
+  };
 
   const relayFor = (tab: AttachedTab) => {
     if (tab.relay) return tab.relay;
@@ -103,6 +117,7 @@ export const make = Effect.gen(function* () {
         setDownloadDirectory: (directory) => {
           tab.downloadDirectory = directory;
         },
+        setCaptureActive: (active) => setCaptureActive(tab, active),
       },
       (message) => {
         if (tab.relay === relay && tabs.get(keyOf(tab.key)) === tab) {
@@ -133,6 +148,7 @@ export const make = Effect.gen(function* () {
     const tab = tabs.get(id);
     if (!tab) return;
     tabs.delete(id);
+    setCaptureActive(tab, false);
     tab.debuggee.debugger.off("message", tab.onMessage);
     emit({ type: "detached", ...key });
   };
@@ -148,6 +164,7 @@ export const make = Effect.gen(function* () {
       downloadDirectory: null,
       pendingDownloadGuid: null,
       agentInputAt: Number.NEGATIVE_INFINITY,
+      capturing: false,
       onMessage: (_event, method, params, sessionId) => {
         if (method === "Browser.downloadWillBegin") {
           const guid = (params as { guid?: unknown } | undefined)?.guid;
@@ -174,6 +191,7 @@ export const make = Effect.gen(function* () {
       }
       if (command.value.type === "release") {
         tab.relay = null;
+        setCaptureActive(tab, false);
         return;
       }
       if (AGENT_INPUT_COMMAND.test(command.value.message)) tab.agentInputAt = performance.now();
@@ -190,6 +208,7 @@ export const make = Effect.gen(function* () {
       [...tabs.values()],
       (tab) => {
         tab.relay = null;
+        setCaptureActive(tab, false);
         return PubSub.publish(outbox, { type: "attached", ...tab.key });
       },
       { discard: true },
@@ -197,6 +216,7 @@ export const make = Effect.gen(function* () {
   );
 
   return DesktopBrowserHost.of({
+    captures: Stream.fromPubSub(captures),
     pointers: Stream.fromPubSub(pointers),
     // Subscribes before announcing, so no attach falls between the two.
     events: Stream.unwrap(

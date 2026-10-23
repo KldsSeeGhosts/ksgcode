@@ -194,9 +194,13 @@ describe("previewStateStore (single-tab)", () => {
 
     applyPreviewDesktopState(ref, snapshot.tabId, overlay);
     applyPreviewDesktopState(ref, snapshot.tabId, { ...overlay, favicon: { ...overlay.favicon } });
-    unsubscribe();
-
     expect(updateCount).toBe(1);
+    applyPreviewDesktopState(ref, snapshot.tabId, { ...overlay, capturing: true });
+    expect(readThreadPreviewState(ref).desktopOverlay?.capturing).toBe(true);
+    applyPreviewDesktopState(ref, snapshot.tabId, { ...overlay, capturing: false });
+    expect(readThreadPreviewState(ref).desktopOverlay?.capturing).toBe(false);
+    expect(updateCount).toBe(3);
+    unsubscribe();
   });
 
   it("retains multiple tabs and switches active desktop state", () => {

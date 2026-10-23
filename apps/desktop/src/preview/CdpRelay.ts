@@ -19,6 +19,7 @@ export interface CdpRelayTarget {
    * Playwright reads the file where it asked for it.
    */
   readonly setDownloadDirectory: (directory: string | null) => void;
+  readonly setCaptureActive: (active: boolean) => void;
 }
 
 export interface CdpRelayConnection {
@@ -62,6 +63,13 @@ export function createCdpRelayConnection(
    * page's events; other ids are the page's own child sessions, such as iframes.
    */
   const sessions = new Map<string, "browser" | "page">([[PAGE_SESSION_ID, "page"]]);
+  // stopScreencast also pauses for still captures and scale changes. Only
+  // detaching its owning session makes the guest safe to stop compositing.
+  const capturing = new Set<string>();
+  const screencasts = new Map<string, Record<string, unknown>>();
+  const releaseCapture = (sessionId: string) => {
+    if (capturing.delete(sessionId) && capturing.size === 0) target.setCaptureActive(false);
+  };
   let sessionSequence = 0;
   const newSession = (kind: "browser" | "page") => {
     const sessionId = `t3-preview-${kind}-${++sessionSequence}`;
@@ -121,8 +129,11 @@ export function createCdpRelayConnection(
       }
       case "Target.detachFromTarget": {
         const sessionId = command.params?.["sessionId"];
-        if (typeof sessionId === "string" && sessionId !== PAGE_SESSION_ID)
+        if (typeof sessionId === "string" && sessionId !== PAGE_SESSION_ID) {
+          releaseCapture(sessionId);
+          screencasts.delete(sessionId);
           sessions.delete(sessionId);
+        }
         return {};
       }
       case "Target.setAutoAttach": {
@@ -143,6 +154,19 @@ export function createCdpRelayConnection(
 
   const pageCommand = (command: CdpCommand): Promise<unknown> => {
     const child = sessions.get(command.sessionId!) === "page" ? undefined : command.sessionId;
+    if (command.method === "Page.startScreencast" && child === undefined) {
+      const wasCapturing = capturing.size > 0;
+      capturing.add(command.sessionId!);
+      screencasts.set(command.sessionId!, command.params ?? {});
+      if (!wasCapturing) target.setCaptureActive(true);
+    }
+    if (command.method === "Page.stopScreencast" && child === undefined) {
+      screencasts.delete(command.sessionId!);
+      // Synthetic sessions share one real screencast. Closing or pausing one
+      // viewer must not stop frames for the others.
+      const remaining = [...screencasts.values()].at(-1);
+      if (remaining) return target.send("Page.startScreencast", remaining, undefined);
+    }
     // The page itself is already running, but its child frames are not:
     // Playwright auto-attaches with waitForDebuggerOnStart, so Chromium pauses
     // every new cross-site iframe and worker until this reaches it. Swallowing
