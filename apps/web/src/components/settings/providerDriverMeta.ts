@@ -12,6 +12,7 @@ import { museClient } from "@t3tools/provider-muse/client";
 import { openCodeClient } from "@t3tools/provider-opencode/client";
 import { hermesClient } from "@t3tools/provider-hermes/client";
 import { ompClient } from "@t3tools/provider-omp/client";
+import { deepseekClient } from "@t3tools/provider-deepseek/client";
 import { piClient } from "@t3tools/provider-pi/client";
 import { zcodeClient } from "@t3tools/provider-zcode/client";
 
@@ -39,5 +40,6 @@ export const providerClients = makeProviderClientRegistry([
   zcodeClient,
   hermesClient,
   ompClient,
+  deepseekClient,
   acpRegistryClient,
 ]);

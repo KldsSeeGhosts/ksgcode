@@ -2243,6 +2243,7 @@ it.layer(
               "claudeAgent",
               "codex",
               "cursor",
+              "deepseek",
               "grok",
               "hermes",
               "muse",
@@ -2257,7 +2258,7 @@ it.layer(
             const museProvider = providers.find((provider) => provider.driver === "muse");
             assert.strictEqual(museProvider?.enabled, false);
             assert.strictEqual(museProvider?.status, "disabled");
-            for (const driver of ["hermes", "omp", "zcode"]) {
+            for (const driver of ["deepseek", "hermes", "omp", "zcode"]) {
               assert.strictEqual(
                 providers.find((provider) => provider.driver === driver)?.enabled,
                 false,

@@ -11,6 +11,7 @@ import { OpenCodeDriver, type OpenCodeDriverEnv } from "@t3tools/provider-openco
 import { MuseDriver, type MuseDriverEnv } from "@t3tools/provider-muse/server";
 import { HermesDriver } from "@t3tools/provider-hermes/server";
 import { OmpDriver } from "@t3tools/provider-omp/server";
+import { DeepSeekDriver } from "@t3tools/provider-deepseek/server";
 import { PiDriver, type PiDriverEnv } from "@t3tools/provider-pi/server";
 import { ZcodeDriver } from "@t3tools/provider-zcode/server";
 import type {
@@ -41,6 +42,7 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   ZcodeDriver,
   HermesDriver,
   OmpDriver,
+  DeepSeekDriver,
   AcpRegistryDriver,
 ];
 

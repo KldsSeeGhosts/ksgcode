@@ -120,19 +120,20 @@ and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
 
-| Provider    | Install and authenticate                                                                                                                                  |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex       | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
-| Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
-| Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
-| Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
-| OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
-| Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
-| Pi          | Install [Pi](./providers-pi.md#set-up-pi) with Node.js 22.19 or newer, then run `pi` and `/login`.                                                        |
-| Muse Code   | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Providers.                          |
-| ZCode       | Sign in to [ZCode](./providers-zcode.md#set-up-zcode), then install its ACP bridge with `npm install -g zcode-acp-server`.                                |
-| Hermes      | Install [Hermes Agent](./providers-hermes.md#set-up-hermes), then run `hermes acp --setup`.                                                               |
-| OMP         | Install [Oh My Pi](./providers-omp.md#set-up-omp), then run `omp login`.                                                                                  |
+| Provider         | Install and authenticate                                                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex            | [Connect with ChatGPT](./providers-codex.md#connect-with-chatgpt), or install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`. |
+| Claude           | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
+| Cursor           | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
+| Grok Build       | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
+| OpenCode         | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
+| Antigravity      | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
+| Pi               | Install [Pi](./providers-pi.md#set-up-pi) with Node.js 22.19 or newer, then run `pi` and `/login`.                                                        |
+| Muse Code        | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Providers.                          |
+| ZCode            | Sign in to [ZCode](./providers-zcode.md#set-up-zcode), then install its ACP bridge with `npm install -g zcode-acp-server`.                                |
+| Hermes           | Install [Hermes Agent](./providers-hermes.md#set-up-hermes), then run `hermes acp --setup`.                                                               |
+| OMP              | Install [Oh My Pi](./providers-omp.md#set-up-omp), then run `omp login`.                                                                                  |
+| DeepSeek Harness | Install [DeepSeek Harness](./providers-deepseek.md), configure its ACP profile, then enable it in Settings → Providers.                                   |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.

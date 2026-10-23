@@ -110,6 +110,44 @@ describe("dedicated ACP agent profiles", () => {
     reportsContextWindow: true,
   };
 
+  it("keeps the product version and native policy presentation when a bridge has its own version", () => {
+    const provider = buildCheckedAcpRegistrySnapshot({
+      ...identity,
+      profile: {
+        driverKind: ProviderDriverKind.make("deepseek"),
+        displayName: "DeepSeek Harness",
+        versionSource: "cli",
+        presentation: {
+          supportedRuntimeModes: ["approval-required"],
+          showInteractionModeToggle: false,
+        },
+      },
+      settings: decodeSettings({ source: "local", commandPath: "dsh" }),
+      checkedAt: "2026-10-23T16:00:00.000Z",
+      inspection: { status: "ready", agentId: "", version: "0.2.1-rc.2", distribution: "local" },
+      probe: {
+        agentVersion: "0.0.1",
+        probe: {
+          instanceId: identity.instanceId,
+          ready: true,
+          icon: null,
+          authMethods: [],
+          models: [],
+          currentModelId: null,
+          configOptions: [],
+          sessionManagement: noSessionManagement,
+        },
+        slashCommands: [],
+        skills: [],
+      },
+    });
+    expect(provider.version).toBe("0.2.1-rc.2");
+    expect(provider.supportedRuntimeModes).toEqual(["approval-required"]);
+    expect(provider.showInteractionModeToggle).toBe(false);
+    expect(provider.slashCommands).toEqual([]);
+    expect(provider.supportsTextGeneration).toBe(false);
+  });
+
   it("present under their own driver with the context meter and T3's compact command", () => {
     const provider = buildCheckedAcpRegistrySnapshot({
       ...identity,
