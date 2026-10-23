@@ -36,8 +36,6 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
 import {
   enrichProviderSnapshotWithVersionAdvisory,
   makeCachedProviderMaintenanceResolution,
-  makePackageManagedProviderMaintenanceResolver,
-  normalizeCommandPath,
   resolveProviderMaintenanceCapabilitiesEffect,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import {
@@ -56,31 +54,10 @@ import * as CodexInstallation from "../CodexInstallation.ts";
 import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../../environment/ServerEnvironment.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { makeCodexMaintenanceResolver } from "./codexMaintenance.ts";
 const decodeCodexSettings = Schema.decodeSync(CodexSettings);
 
 const DRIVER_KIND = ProviderDriverKind.make("codex");
-function isCodexStandaloneCommandPath(commandPath: string): boolean {
-  return normalizeCommandPath(commandPath).includes("/packages/standalone/");
-}
-
-/**
- * `codex update` replaces the standalone tree under `CODEX_HOME`. That tree
- * lives in the shared home even when an auth-overlay shadow home is in use
- * (the overlay only carries auth and a few local entries), so the updater
- * runs against `sharedHomePath` rather than the instance's effective home.
- */
-function makeCodexMaintenanceResolver(sharedHomePath: string) {
-  return makePackageManagedProviderMaintenanceResolver({
-    provider: DRIVER_KIND,
-    npmPackageName: "@openai/codex",
-    nativeUpdate: {
-      args: ["update"],
-      isCommandPath: isCodexStandaloneCommandPath,
-      env: { CODEX_HOME: sharedHomePath },
-    },
-  });
-}
-
 export type CodexDriverEnv =
   | CodexAdapterV2DriverEnv
   | ProviderHost.ProviderHost
@@ -165,7 +142,7 @@ export const CodexDriver: ProviderDriver<
     } satisfies CodexSettings;
     const resolveMaintenance = yield* makeCachedProviderMaintenanceResolution(
       resolveProviderMaintenanceCapabilitiesEffect(
-        makeCodexMaintenanceResolver(homeLayout.sharedHomePath),
+        yield* makeCodexMaintenanceResolver(homeLayout.sharedHomePath),
         {
           binaryPath: effectiveConfig.binaryPath,
           env: processEnv,
