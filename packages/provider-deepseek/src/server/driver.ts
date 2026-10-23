@@ -27,6 +27,9 @@ export const DEEPSEEK_PROFILE = {
   versionSource: "cli",
   flavor: {
     supportsCompaction: true,
+    // Harness persists its sandbox separately from ACP approval requests.
+    // Reapply the thread's policy before prompting new and resumed sessions.
+    sessionModeForPolicy: (policy) => policy.runtimeMode,
     capabilities: {
       ...AcpProviderCapabilitiesV2,
       planning: {
@@ -38,7 +41,7 @@ export const DEEPSEEK_PROFILE = {
     },
   },
   presentation: {
-    supportedRuntimeModes: ["approval-required"],
+    supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
     showInteractionModeToggle: false,
   },
 } satisfies AcpAgentProfile;

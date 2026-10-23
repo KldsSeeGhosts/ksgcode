@@ -28,8 +28,9 @@ to you for approval.
 Muse Code offers only **Supervised** and **Full access**. A Muse thread already set to another mode
 runs in **Supervised**.
 
-DeepSeek Harness offers only **Supervised** because its ACP profile exposes no native permission
-mode selector. Its own tool policy decides which actions need approval.
+DeepSeek Harness supports all four modes. **Full access** disables its native sandbox and approval
+prompts. **Auto** disables the sandbox and approves requests automatically, without a separate
+automatic review.
 
 Grok offers no **Auto-accept edits**. A Grok thread already set to it runs in **Supervised**. Grok
 file-change approvals offer **Allow all edits this session**. Its command approvals have no

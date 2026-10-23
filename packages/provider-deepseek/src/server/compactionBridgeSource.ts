@@ -9,12 +9,14 @@ const appRequire = createRequire(require.resolve("@deepseek-ai/dsh-acp-app"));
 const acpPath = appRequire.resolve("@deepseek-ai/dsh-acp");
 const acp = await import(pathToFileURL(acpPath).href);
 const { ndJsonStream } = await import(pathToFileURL(createRequire(acpPath).resolve("@agentclientprotocol/sdk")).href);
+const { setSandboxMode } = await import(pathToFileURL(appRequire.resolve("@deepseek-ai/dsh-sandbox-policy")).href);
+const { setApprovalPolicy } = await import(pathToFileURL(appRequire.resolve("@deepseek-ai/dsh-user-approval")).href);
 
 export const name = "ksg-deepseek-acp";
 export const Config = acp.Config;
 export const inject = [...acp.inject, "compaction", "tokenMeter"];
 
-export function makeCompactionBridge({ agents, compaction, tokenMeter }, wire) {
+export function makeCompactionBridge({ agents, compaction, tokenMeter, sessions: nativeSessions }, wire) {
   const reader = wire.readable.getReader();
   const writer = wire.writable.getWriter();
   const sessions = new Set();
@@ -28,6 +30,24 @@ export function makeCompactionBridge({ agents, compaction, tokenMeter }, wire) {
   const failure = (id, message) => send({ jsonrpc: "2.0", id, error: { code: -32603, message } });
   const notify = (sessionId, update) =>
     send({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update } });
+  const permissionModes = [
+    { id: "approval-required", name: "Supervised", sandbox: "read-only", approval: "ask" },
+    { id: "auto-accept-edits", name: "Auto-accept edits", sandbox: "workspace-write", approval: "ask" },
+    { id: "auto", name: "Auto", sandbox: "danger-full-access", approval: "ask" },
+    { id: "full-access", name: "Full access", sandbox: "danger-full-access", approval: "never" },
+  ];
+  const busy = sessionId => active.has(sessionId) || [...forwarded.values()].some(request =>
+    request.method === "session/prompt" && request.params?.sessionId === sessionId);
+  const setMode = async (sessionId, modeId) => {
+    const agent = agents.get(sessionId);
+    if (!sessions.has(sessionId) || !agent) throw new Error("Unknown Harness session.");
+    const mode = permissionModes.find(mode => mode.id === modeId);
+    if (!mode) throw new Error("Unknown Harness permission mode.");
+    if (busy(sessionId)) throw new Error("Permission changes require an idle Harness session.");
+    setSandboxMode(agent.session, mode.sandbox);
+    setApprovalPolicy(agent.session, mode.approval);
+    await nativeSessions.flush(agent.session);
+  };
   const failures = {
     busy: "Compaction requires an idle Harness session.",
     changed: "The history changed during compaction. Retry when the session is idle.",
@@ -39,8 +59,7 @@ export function makeCompactionBridge({ agents, compaction, tokenMeter }, wire) {
   const startCompaction = message => {
     const sessionId = message.params.sessionId;
     if (!sessions.has(sessionId)) return failure(message.id, "Unknown Harness session.");
-    if (active.has(sessionId) || [...forwarded.values()].some(request =>
-      request.method === "session/prompt" && request.params?.sessionId === sessionId)) {
+    if (busy(sessionId)) {
       return failure(message.id, failures.busy);
     }
     const agent = agents.get(sessionId);
@@ -91,8 +110,21 @@ export function makeCompactionBridge({ agents, compaction, tokenMeter }, wire) {
         const request = forwarded.get(message.id);
         forwarded.delete(message.id);
         if (message.result) {
-          if (request.method === "session/new") sessions.add(message.result.sessionId);
-          if (request.method === "session/resume") sessions.add(request.params.sessionId);
+          if (request.method === "session/new" || request.method === "session/resume") {
+            const sessionId = message.result.sessionId ?? request.params.sessionId;
+            sessions.add(sessionId);
+            try {
+              // Reset a resumed native policy before advertising a known mode. T3 then
+              // selects the thread's mode before its first prompt, even for Supervised.
+              await setMode(sessionId, "approval-required");
+            } catch {
+              return failure(message.id, "Harness could not initialize the session permission policy.");
+            }
+            message = { ...message, result: { ...message.result, modes: {
+              currentModeId: "approval-required",
+              availableModes: permissionModes.map(({ id, name }) => ({ id, name })),
+            } } };
+          }
           if (request.method === "session/close") sessions.delete(request.params.sessionId);
         }
       }
@@ -107,6 +139,15 @@ export function makeCompactionBridge({ agents, compaction, tokenMeter }, wire) {
         if (done || disposed) break;
         const sessionId = message.params?.sessionId;
         const operation = active.get(sessionId);
+        if (message.method === "session/set_mode" && message.id !== undefined) {
+          try {
+            await setMode(sessionId, message.params?.modeId);
+            await result(message.id, {});
+          } catch {
+            await failure(message.id, "Harness could not apply the requested permission mode to an idle owned session.");
+          }
+          continue;
+        }
         if (message.method === "session/cancel" && operation) {
           operation.abort.abort();
           continue;
@@ -164,6 +205,7 @@ export function apply(ctx, config) {
     agents: ctx.agents,
     compaction: ctx.compaction,
     tokenMeter: ctx.tokenMeter,
+    sessions: ctx.sessions,
   }, ndJsonStream(Writable.toWeb(process.stdout), Readable.toWeb(process.stdin)));
   ctx.effect(() => () => bridge.dispose());
   acp.apply(ctx, { ...config, stream: bridge.stream });

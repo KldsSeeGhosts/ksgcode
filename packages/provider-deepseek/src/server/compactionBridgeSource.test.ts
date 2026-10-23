@@ -13,7 +13,10 @@ interface Frame {
   readonly error?: { readonly code: number; readonly message: string };
 }
 interface Agent {
-  readonly session: { readonly requestContext: () => { readonly contextWindow: number } };
+  readonly session: {
+    readonly requestContext: () => { readonly contextWindow: number };
+    readonly append: (type: string, data: unknown) => void;
+  };
 }
 type CompactNow = (
   agent: Agent,
@@ -31,6 +34,7 @@ type MakeBridge = (
     readonly agents: { readonly get: (id: string) => Agent | undefined };
     readonly compaction: { readonly compactNow: CompactNow };
     readonly tokenMeter: { readonly measure: () => { readonly totalTokens: number } };
+    readonly sessions: { readonly flush: (session: Agent["session"]) => Promise<void> };
   },
   wire: { readonly readable: ReadableStream<Frame>; readonly writable: WritableStream<Frame> },
 ) => Bridge;
@@ -61,17 +65,33 @@ function setup(compactNow: CompactNow) {
     ReadableStream,
     WritableStream,
     AbortController,
+    setSandboxMode: (session: Agent["session"], mode: string) =>
+      session.append("sandbox/mode", { mode }),
+    setApprovalPolicy: (session: Agent["session"], policy: string) =>
+      session.append("approval/policy", { policy }),
   }) as MakeBridge;
   const native = queue<Frame>();
   const client = queue<Frame>();
   const requests = new TransformStream<Frame, Frame>();
   const input = requests.writable.getWriter();
-  const agent: Agent = { session: { requestContext: () => ({ contextWindow: 1000 }) } };
+  const events: Array<{ readonly type: string; readonly data: unknown }> = [];
+  let flushes = 0;
+  const agent: Agent = {
+    session: {
+      requestContext: () => ({ contextWindow: 1000 }),
+      append: (type, data) => events.push({ type, data }),
+    },
+  };
   const bridge = makeBridge(
     {
       agents: { get: (id) => (id === "session" ? agent : undefined) },
       compaction: { compactNow },
       tokenMeter: { measure: () => ({ totalTokens: 40 }) },
+      sessions: {
+        flush: async () => {
+          flushes++;
+        },
+      },
     },
     {
       readable: requests.readable,
@@ -88,6 +108,10 @@ function setup(compactNow: CompactNow) {
   })();
   return {
     agent,
+    events,
+    get flushes() {
+      return flushes;
+    },
     forwarded,
     send: (frame: Frame) => input.write(frame),
     disconnect: () => input.close(),
@@ -116,6 +140,118 @@ const compact = (id = 2): Frame => ({
 });
 
 describe("Harness native compaction bridge", () => {
+  it("advertises permission modes and persists unrestricted execution before acknowledging Full access", async () => {
+    await using harness = setup(async () => null);
+    await harness.send({ id: 1, method: "session/new", params: { cwd: "/work", mcpServers: [] } });
+    await harness.readNative();
+    await harness.reply({ id: 1, result: { sessionId: "session", configOptions: [] } });
+    expect(await harness.read()).toMatchObject({
+      id: 1,
+      result: {
+        sessionId: "session",
+        modes: {
+          currentModeId: "approval-required",
+          availableModes: expect.arrayContaining([{ id: "full-access", name: "Full access" }]),
+        },
+      },
+    });
+    await harness.send({
+      id: 2,
+      method: "session/set_mode",
+      params: { sessionId: "session", modeId: "full-access" },
+    });
+    expect(await harness.read()).toMatchObject({ id: 2, result: {} });
+    expect(harness.events.slice(-2)).toEqual([
+      { type: "sandbox/mode", data: { mode: "danger-full-access" } },
+      { type: "approval/policy", data: { policy: "never" } },
+    ]);
+    expect(harness.flushes).toBe(2);
+    expect(harness.forwarded.map((frame) => frame.method)).toEqual(["session/new"]);
+  });
+
+  it("restores Supervised restrictions on resume and can switch through automatic modes", async () => {
+    await using harness = setup(async () => null);
+    await harness.send({
+      id: 1,
+      method: "session/resume",
+      params: { sessionId: "session", cwd: "/work", mcpServers: [] },
+    });
+    await harness.readNative();
+    await harness.reply({ id: 1, result: { configOptions: [] } });
+    expect(await harness.read()).toMatchObject({
+      result: { modes: { currentModeId: "approval-required" } },
+    });
+    expect(harness.events).toEqual([
+      { type: "sandbox/mode", data: { mode: "read-only" } },
+      { type: "approval/policy", data: { policy: "ask" } },
+    ]);
+    for (const [modeId, sandbox, approval] of [
+      ["full-access", "danger-full-access", "never"],
+      ["approval-required", "read-only", "ask"],
+      ["auto-accept-edits", "workspace-write", "ask"],
+      ["auto", "danger-full-access", "ask"],
+    ]) {
+      await harness.send({
+        id: 2,
+        method: "session/set_mode",
+        params: { sessionId: "session", modeId },
+      });
+      expect(await harness.read()).toMatchObject({ id: 2, result: {} });
+      expect(harness.events.slice(-2)).toEqual([
+        { type: "sandbox/mode", data: { mode: sandbox } },
+        { type: "approval/policy", data: { policy: approval } },
+      ]);
+    }
+    expect(harness.forwarded.map((frame) => frame.method)).toEqual(["session/resume"]);
+  });
+
+  it("rejects unknown sessions and invalid permission modes without changing native policy", async () => {
+    await using harness = setup(async () => null);
+    await harness.send({
+      id: 1,
+      method: "session/set_mode",
+      params: { sessionId: "foreign", modeId: "full-access" },
+    });
+    expect(await harness.read()).toMatchObject({ id: 1, error: expect.anything() });
+    await harness.open();
+    const eventCount = harness.events.length;
+    await harness.send({
+      id: 2,
+      method: "session/set_mode",
+      params: { sessionId: "session", modeId: "invalid" },
+    });
+    expect(await harness.read()).toMatchObject({ id: 2, error: expect.anything() });
+    expect(harness.events).toHaveLength(eventCount);
+    expect(harness.forwarded.map((frame) => frame.method)).toEqual(["session/new"]);
+  });
+
+  it("does not change permissions during an active prompt", async () => {
+    await using harness = setup(async () => null);
+    await harness.open();
+    await harness.send({
+      id: 2,
+      method: "session/prompt",
+      params: { sessionId: "session", prompt: [{ type: "text", text: "Continue." }] },
+    });
+    await harness.readNative();
+    const eventCount = harness.events.length;
+    await harness.send({
+      id: 3,
+      method: "session/set_mode",
+      params: { sessionId: "session", modeId: "full-access" },
+    });
+    expect(await harness.read()).toMatchObject({ id: 3, error: expect.anything() });
+    expect(harness.events).toHaveLength(eventCount);
+    await harness.reply({ id: 2, result: { stopReason: "end_turn" } });
+    await harness.read();
+    await harness.send({
+      id: 4,
+      method: "session/set_mode",
+      params: { sessionId: "session", modeId: "full-access" },
+    });
+    expect(await harness.read()).toMatchObject({ id: 4, result: {} });
+  });
+
   it("compacts the owned native agent and sends measured usage before completion", async () => {
     const calls: Array<Agent> = [];
     await using harness = setup(async (agent) => {

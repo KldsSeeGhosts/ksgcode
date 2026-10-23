@@ -35,7 +35,7 @@ describe("DeepSeek Harness launch", () => {
       customModels: [{ slug: model, name: "DeepSeek V4.1 Flash (CPA)" }],
     });
     expect(DEEPSEEK_PROFILE.presentation).toEqual({
-      supportedRuntimeModes: ["approval-required"],
+      supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
       showInteractionModeToggle: false,
     });
   });

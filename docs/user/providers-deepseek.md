@@ -62,9 +62,12 @@ explicitly, then refresh the provider so KSG discovers the new model options.
 ## Supported behavior
 
 Conversations support multiple turns, cancellation, native session resume, MCP tools, model and
-reasoning selection, and the context meter. Harness runs its tools under its own policy; KSG
-shows **Supervised** and forwards the approval requests Harness sends. Harness persists that
-policy in each native session, so changing its defaults does not change an existing session.
+reasoning selection, and the context meter. Choose permissions in the message composer.
+**Full access** disables Harness's file and command sandbox and approval prompts.
+**Supervised** uses its read-only sandbox and asks before escalation; **Auto-accept edits**
+allows workspace changes while wider access can still require approval. **Auto** runs without
+the sandbox and automatically approves requests, without a separate automatic review.
+KSG applies the thread's permissions before each turn, including when resuming a native session.
 
 Use **Compact** from the context meter, or send `/compact`, to run Harness's native compaction
 without replacing the session. The context meter refreshes when it finishes, and the condensed

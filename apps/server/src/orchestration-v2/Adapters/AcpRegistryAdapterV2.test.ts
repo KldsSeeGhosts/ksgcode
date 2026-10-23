@@ -44,6 +44,7 @@ import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRe
 import * as AcpRegistryRuntimeCoordinator from "@t3tools/provider-acp-registry/server/AcpRegistryRuntimeCoordinator";
 import { ACP_SESSION_MODE_OPTION_ID } from "@t3tools/provider-acp/server/sessionConfig";
 import { HERMES_PROFILE } from "@t3tools/provider-hermes/server";
+import { DEEPSEEK_PROFILE } from "@t3tools/provider-deepseek/server";
 import { OMP_PROFILE } from "@t3tools/provider-omp/server";
 import { ZCODE_PROFILE } from "@t3tools/provider-zcode/server";
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
@@ -951,6 +952,7 @@ describe("AcpRegistryAdapterV2", () => {
       readonly profile?: AcpAgentProfile;
       readonly runtimeMode?: RuntimeMode;
       readonly resume?: boolean;
+      readonly turnRuntimeModes?: ReadonlyArray<RuntimeMode>;
     }) {
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1030,10 +1032,79 @@ describe("AcpRegistryAdapterV2", () => {
             cwd: replayDir,
           }),
         })
-        .pipe(Effect.asVoid, Effect.scoped, Effect.exit);
+        .pipe(
+          Effect.tap((runtime) =>
+            Effect.gen(function* () {
+              if (input.turnRuntimeModes === undefined) return;
+              const threadId = ThreadId.make("thread-acp-registry-mode-pick");
+              const modelSelection = { instanceId, model: input.model ?? "default" };
+              const runtimePolicy = {
+                runtimeMode: input.runtimeMode ?? ("approval-required" as const),
+                interactionMode: "default" as const,
+                cwd: replayDir,
+              };
+              const providerThread = yield* runtime.ensureThread({
+                threadId,
+                modelSelection,
+                runtimePolicy,
+              });
+              const now = yield* DateTime.now;
+              for (const [index, runtimeMode] of input.turnRuntimeModes.entries()) {
+                yield* runtime.startTurn(
+                  makeTurnInput({
+                    threadId,
+                    providerThread,
+                    instanceId,
+                    modelSelection,
+                    runtimePolicy: { ...runtimePolicy, runtimeMode },
+                    now,
+                    ordinal: index + 1,
+                  }),
+                );
+                yield* runtime.events.pipe(
+                  Stream.takeUntil((event) => event.type === "turn.terminal"),
+                  Stream.runForEach((event) =>
+                    Effect.sync(() => {
+                      if (event.type === "turn.terminal") {
+                        assert.equal(event.status, "completed", event.failure?.message);
+                      }
+                    }),
+                  ),
+                );
+              }
+            }),
+          ),
+          Effect.asVoid,
+          Effect.scoped,
+          Effect.exit,
+        );
       yield* makeAcpReplayCompletenessAssertion(fileSystem, statusPath, transcript);
       return opened;
     });
+
+    it.effect(
+      "applies DeepSeek permission-only changes before prompting the same native session",
+      () =>
+        openWithStoredSelection({
+          profile: DEEPSEEK_PROFILE,
+          setup: {
+            modes: {
+              currentModeId: "approval-required",
+              availableModes: ["approval-required", "full-access", "auto"].map((id) => ({
+                id,
+                name: id,
+              })),
+            },
+          },
+          turnRuntimeModes: ["full-access", "approval-required", "auto"],
+          selectionFrames: ["full-access", "approval-required", "auto"].flatMap((modeId) => [
+            outbound("session/set_mode", { sessionId: "agent-session", modeId }),
+            answer("session/set_mode", {}),
+            outbound("session/prompt"),
+            answer("session/prompt", { stopReason: "end_turn" }),
+          ]),
+        }).pipe(Effect.map(assertOpened), Effect.provide(layerTest), Effect.scoped),
+    );
 
     it.effect.each([
       ["approval-required", "default"],
