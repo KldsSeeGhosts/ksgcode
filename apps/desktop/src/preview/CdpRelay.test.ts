@@ -5,6 +5,7 @@ import { createCdpRelayConnection, type CdpRelayTarget } from "./CdpRelay.ts";
 const makeTarget = (
   send: CdpRelayTarget["send"],
   setDownloadDirectory: CdpRelayTarget["setDownloadDirectory"] = () => {},
+  setCaptureActive: CdpRelayTarget["setCaptureActive"] = () => {},
 ): CdpRelayTarget => ({
   send,
   targetId: async () => "GUEST-TARGET",
@@ -12,6 +13,7 @@ const makeTarget = (
   title: () => "Fixture",
   userAgent: () => "Electron",
   setDownloadDirectory,
+  setCaptureActive,
 });
 
 // Each relay reply resolves after a few microtasks; one macrotask lets them all land.
@@ -115,6 +117,69 @@ describe("CDP relay", () => {
 });
 
 describe("CDP relay extra sessions", () => {
+  it("keeps capturing guests paintable through pauses until every viewer session detaches", async () => {
+    const changes: boolean[] = [];
+    const replies = new Map<number, Record<string, unknown>>();
+    const send = vi.fn(async () => ({}));
+    const relay = createCdpRelayConnection(
+      makeTarget(send, undefined, (active) => changes.push(active)),
+      (raw) => {
+        const message = JSON.parse(raw);
+        replies.set(message.id, message.result);
+      },
+    );
+    relay.receive(JSON.stringify({ id: 1, method: "Target.attachToBrowserTarget" }));
+    await settle();
+    const browserSession = replies.get(1)!["sessionId"];
+    for (const id of [2, 3]) {
+      relay.receive(
+        JSON.stringify({
+          id,
+          method: "Target.attachToTarget",
+          params: { targetId: "GUEST-TARGET" },
+          sessionId: browserSession,
+        }),
+      );
+    }
+    await settle();
+    const first = replies.get(2)!["sessionId"];
+    const second = replies.get(3)!["sessionId"];
+    relay.receive(JSON.stringify({ id: 4, method: "Page.startScreencast", sessionId: first }));
+    relay.receive(
+      JSON.stringify({
+        id: 6,
+        method: "Page.startScreencast",
+        params: { quality: 70 },
+        sessionId: second,
+      }),
+    );
+    relay.receive(JSON.stringify({ id: 5, method: "Page.stopScreencast", sessionId: first }));
+    expect(send).toHaveBeenLastCalledWith("Page.startScreencast", { quality: 70 }, undefined);
+    expect(changes).toEqual([true]);
+    relay.receive(
+      JSON.stringify({
+        id: 7,
+        method: "Target.detachFromTarget",
+        params: { sessionId: first },
+        sessionId: browserSession,
+      }),
+    );
+    expect(changes).toEqual([true]);
+    relay.receive(JSON.stringify({ id: 9, method: "Page.stopScreencast", sessionId: second }));
+    expect(send).toHaveBeenLastCalledWith("Page.stopScreencast", {}, undefined);
+    expect(changes).toEqual([true]);
+    relay.receive(
+      JSON.stringify({
+        id: 8,
+        method: "Target.detachFromTarget",
+        params: { sessionId: second },
+        sessionId: browserSession,
+      }),
+    );
+    expect(changes).toEqual([true, false]);
+    await settle();
+  });
+
   it("gives a second page session the page's commands and events", async () => {
     const send = vi.fn(async () => ({}));
     const written: Array<Record<string, unknown>> = [];

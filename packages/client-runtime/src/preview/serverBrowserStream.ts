@@ -205,6 +205,7 @@ export interface PreviewStreamClient {
 }
 
 const ACK_MESSAGE = JSON.stringify({ type: "ack" });
+const STREAM_READY_TIMEOUT_MS = 15_000;
 export function createPreviewStreamClient(
   target: PreviewStreamTarget,
   events: PreviewStreamEvents,
@@ -220,16 +221,35 @@ export function createPreviewStreamClient(
   let stopped = false;
   let socket: WebSocket | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let readyTimer: ReturnType<typeof setTimeout> | null = null;
   let failures = 0;
   let control: PreviewStreamControl | null = null;
   let fileChooser: string | null = null;
 
+  const clearReadyTimer = () => {
+    if (readyTimer !== null) clearTimeout(readyTimer);
+    readyTimer = null;
+  };
+  const reconnect = () => {
+    retryTimer = setTimeout(connect, Math.min(500 * 2 ** failures++, 10_000));
+  };
   const connect = () => {
     if (stopped) return;
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     socket = ws;
     let opened = false;
+    // A stalled upgrade or first capture may never close the socket. Replacing
+    // it also releases the server's viewer session and any pending capture.
+    readyTimer = setTimeout(() => {
+      if (socket !== ws) return;
+      readyTimer = null;
+      socket = null;
+      control = null;
+      events.onConnectedChange(false);
+      ws.close();
+      reconnect();
+    }, STREAM_READY_TIMEOUT_MS);
     ws.addEventListener("open", () => {
       if (socket !== ws) return;
       opened = true;
@@ -238,6 +258,7 @@ export function createPreviewStreamClient(
     ws.addEventListener("message", (event) => {
       if (socket !== ws) return;
       if (event.data instanceof ArrayBuffer) {
+        clearReadyTimer();
         failures = 0;
         ws.send(ACK_MESSAGE);
         events.onFrame(event.data);
@@ -344,6 +365,7 @@ export function createPreviewStreamClient(
     });
     ws.addEventListener("close", (event) => {
       if (socket !== ws) return;
+      clearReadyTimer();
       socket = null;
       control = null;
       if (opened) events.onConnectedChange(false);
@@ -364,7 +386,7 @@ export function createPreviewStreamClient(
         events.onUnauthorized();
         return;
       }
-      retryTimer = setTimeout(connect, Math.min(500 * 2 ** failures++, 10_000));
+      reconnect();
     });
     ws.addEventListener("error", () => ws.close());
   };
@@ -382,6 +404,7 @@ export function createPreviewStreamClient(
     stop: () => {
       stopped = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
+      clearReadyTimer();
       const ws = socket;
       socket = null;
       control = null;

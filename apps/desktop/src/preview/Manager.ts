@@ -105,6 +105,7 @@ export interface PreviewTabState {
   canGoForward: boolean;
   zoomFactor: number;
   pictureInPicture: boolean;
+  capturing?: boolean;
   colorScheme: DesktopPreviewColorScheme;
   audioMuted: boolean;
   audible: boolean;
@@ -391,7 +392,7 @@ interface ManagedListeners {
   readonly webContents: Electron.WebContents;
 }
 
-type FrameCaptureConsumer = "picture-in-picture" | "recording";
+type FrameCaptureConsumer = "picture-in-picture" | "recording" | "stream";
 
 interface FrameCaptureSession {
   readonly recordingInputOptions?: RecordingInputOptions;
@@ -1749,9 +1750,10 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         cancelPickElement(tabId),
         closePictureInPicture(tabId),
         stopFrameCapture(tabId, "recording"),
+        stopFrameCapture(tabId, "stream"),
       ],
       {
-        concurrency: 3,
+        concurrency: 4,
         discard: true,
       },
     );
@@ -2386,7 +2388,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         return;
       }
       if (afterAttach.serverTab) {
-        yield* listenForAgentPointers;
+        yield* listenForServerBrowser;
         browserHost.attach(afterAttach.serverTab, { webContents: wc, debugger: control.debugger });
       }
       if (afterAttach.colorScheme !== "system") {
@@ -3339,14 +3341,43 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       { discard: true },
     );
   });
-  let pointersStarted = false;
-  const listenForAgentPointers = Effect.suspend(() => {
-    if (pointersStarted) return Effect.void;
-    pointersStarted = true;
-    return browserHost.pointers.pipe(
-      Stream.runForEach(emitAgentPointer),
-      Effect.forkIn(parentScope),
-      Effect.asVoid,
+  const setServerCaptureActive = Effect.fn("PreviewManager.setServerCaptureActive")(
+    function* ({
+      key,
+      active,
+    }: {
+      readonly key: DesktopBrowserHost.DesktopBrowserTabKey;
+      readonly active: boolean;
+    }) {
+      const tab = [...(yield* SynchronizedRef.get(tabsRef)).values()].find(
+        (candidate) =>
+          candidate.serverTab?.threadId === key.threadId && candidate.serverTab.tabId === key.tabId,
+      );
+      if (!tab) return;
+      if (active) yield* startFrameCapture(tab.tabId, "stream");
+      else yield* stopFrameCapture(tab.tabId, "stream");
+      yield* update(tab.tabId, { capturing: active });
+    },
+    Effect.catch((error) =>
+      Effect.logWarning("Failed to update server preview capture activity.", { error }),
+    ),
+  );
+  let serverBrowserListenersStarted = false;
+  const listenForServerBrowser = Effect.suspend(() => {
+    if (serverBrowserListenersStarted) return Effect.void;
+    serverBrowserListenersStarted = true;
+    return Effect.all(
+      [
+        browserHost.pointers.pipe(
+          Stream.runForEach(emitAgentPointer),
+          Effect.forkIn(parentScope, { startImmediately: true }),
+        ),
+        browserHost.captures.pipe(
+          Stream.runForEach(setServerCaptureActive),
+          Effect.forkIn(parentScope, { startImmediately: true }),
+        ),
+      ],
+      { discard: true },
     );
   });
 

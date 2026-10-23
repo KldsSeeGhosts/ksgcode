@@ -115,7 +115,7 @@ describe("preview stream downloads", () => {
 
   it("offers a download at a URL carrying the stream's ticket", () => {
     const onDownload = vi.fn();
-    createPreviewStreamClient(
+    const client = createPreviewStreamClient(
       {
         ...target,
         access: { ...target.access, query: { wsTicket: "ticket" }, credentials: false },
@@ -136,6 +136,7 @@ describe("preview stream downloads", () => {
       sizeBytes: 3,
       url: "http://preview.test/api/preview-stream/download?threadId=thread&tabId=tab&id=d1&wsTicket=ticket",
     });
+    client.stop();
   });
 });
 
@@ -145,7 +146,7 @@ describe("preview stream agent pointer", () => {
 
   it("reports where the agent moves and clicks, ignoring malformed points", () => {
     const onPointer = vi.fn();
-    createPreviewStreamClient(target, {
+    const client = createPreviewStreamClient(target, {
       onFrame: vi.fn(),
       onPointer,
       onViewport: vi.fn(),
@@ -164,5 +165,60 @@ describe("preview stream agent pointer", () => {
       y: 50,
       sequence: 2,
     });
+    client.stop();
+  });
+});
+
+describe("preview stream readiness", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeSocket);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  const connect = () => {
+    const onConnectedChange = vi.fn();
+    const client = createPreviewStreamClient(target, {
+      onFrame: vi.fn(),
+      onControl: vi.fn(),
+      onViewport: vi.fn(),
+      onConnectedChange,
+      onUnauthorized: vi.fn(),
+    });
+    return { client, socket: FakeSocket.current, onConnectedChange };
+  };
+
+  it.each([false, true])(
+    "replaces a connection with no frame even if it opened (%s)",
+    async (opened) => {
+      const { client, socket, onConnectedChange } = connect();
+      if (opened) socket.dispatchEvent(new Event("open"));
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(socket.readyState).toBe(3);
+      expect(onConnectedChange).toHaveBeenLastCalledWith(false);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(FakeSocket.current).not.toBe(socket);
+      client.stop();
+    },
+  );
+
+  it("does not reconnect an idle page after it has delivered a frame", async () => {
+    const { client, socket } = connect();
+    socket.message(new ArrayBuffer(3));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(socket.readyState).toBe(FakeSocket.OPEN);
+    expect(FakeSocket.current).toBe(socket);
+    client.stop();
+  });
+
+  it("cancels pending readiness recovery when the surface stops", async () => {
+    const { client, socket, onConnectedChange } = connect();
+    client.stop();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeSocket.current).toBe(socket);
+    expect(onConnectedChange).not.toHaveBeenCalled();
   });
 });

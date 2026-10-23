@@ -12,6 +12,12 @@ import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { makeAntigravityUsageCache, readAntigravityUsage } from "./antigravityUsageReader.ts";
+import {
+  cacheSavingsUsd,
+  lookupRate,
+  parseRateTable,
+  priceUsage,
+} from "../../usage/usagePricing.ts";
 
 const openDatabase = Effect.fn("openDatabase")(function* (filename: string) {
   const context = yield* Layer.build(NodeSqliteClient.layer({ filename }));
@@ -70,6 +76,100 @@ const records = (result: Effect.Success<ReturnType<typeof readAntigravityUsage>>
   result.files.flatMap((file) => file.records);
 
 describe("readAntigravityUsage", () => {
+  it.effect("prices Gemini models through Google's rates without guessing reseller prices", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const dir = yield* tempDir;
+      yield* seedDatabase(path.join(dir, "argon.db"), (db) =>
+        Effect.gen(function* () {
+          yield* createTables(db);
+          for (const [idx, name] of [
+            "gemini-4-argon-high",
+            "Gemini 2.5 Pro",
+            "claude-sonnet-5-5-high",
+          ].entries()) {
+            yield* db.run("INSERT INTO gen_metadata VALUES (?, ?)", [
+              idx,
+              new Uint8Array(
+                protoBytes(1, [
+                  ...protoText(19, name),
+                  ...protoBytes(4, [
+                    ...protoNumber(2, 1_000_000),
+                    ...protoNumber(3, 1_000_000),
+                    ...protoNumber(5, 1_000_000),
+                  ]),
+                ]),
+              ),
+            ]);
+          }
+        }),
+      );
+      const result = yield* readAntigravityUsage(dir, 0);
+      const standard = {
+        input_cost_per_token: 2e-6,
+        output_cost_per_token: 1e-5,
+        cache_read_input_token_cost: 1e-7,
+      };
+      const rates = parseRateTable({
+        "gemini/gemini-4-argon": {
+          ...standard,
+          input_cost_per_token_priority: 3.6e-6,
+          output_cost_per_token_priority: 1.8e-5,
+        },
+        "github_copilot/gemini-4-argon": standard,
+        "gemini/gemini-2.5-pro": standard,
+        "reseller/gemini-2.5-pro": { ...standard, input_cost_per_token: 8e-6 },
+        "claude-sonnet-5-5": standard,
+      });
+      assert.isNull(lookupRate(rates, "gemini-4-argon"));
+      assert.isNull(lookupRate(rates, "gemini-2.5-pro"));
+      const read = records(result);
+      assert.deepStrictEqual(
+        read.map((record) => record.rateModel),
+        ["gemini/gemini-4-argon", "gemini/gemini-2.5-pro", "claude-sonnet-5-5"],
+      );
+      for (const record of read) {
+        const cost = priceUsage(rates, record);
+        assert.strictEqual(cost.costSource, "modelPriced");
+        assert.approximately(cost.costUsd, 12.1, 1e-10);
+        assert.approximately(cacheSavingsUsd(rates, record), 1.9, 1e-10);
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("resolves numeric usage models from saved metadata without guessing unknown IDs", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const dir = yield* tempDir;
+      yield* seedDatabase(path.join(dir, "model-ids.db"), (db) =>
+        Effect.gen(function* () {
+          yield* createTables(db);
+          yield* db.run("INSERT INTO gen_metadata VALUES (?, ?)", [
+            0,
+            new Uint8Array(
+              protoBytes(1, [...protoNumber(3, 2001), ...protoText(19, "gemini-4-argon-high")]),
+            ),
+          ]);
+          // Step indexes do not necessarily match generation indexes.
+          for (const [idx, id] of [2001, 9999].entries()) {
+            yield* db.run("INSERT INTO steps VALUES (?, ?)", [
+              idx + 10,
+              new Uint8Array(protoBytes(9, [...protoNumber(1, id), ...protoNumber(2, 100)])),
+            ]);
+          }
+        }),
+      );
+      const read = records(yield* readAntigravityUsage(dir, 0));
+      assert.deepStrictEqual(
+        read.map((record) => [record.model, record.rateModel]),
+        [
+          ["gemini-4-argon-high", "gemini/gemini-4-argon"],
+          ["antigravity-model-9999", undefined],
+        ],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect(
     "deduplicates Antigravity generation and step usage while preserving retry model and token buckets",
     () =>

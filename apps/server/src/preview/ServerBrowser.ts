@@ -2261,12 +2261,15 @@ const make = Effect.gen(function* () {
         catch: (cause) => new ServerBrowserLaunchError({ cause }),
       }),
       (session) =>
-        Effect.promise(() =>
-          session
-            .send("Page.stopScreencast")
-            .catch(constVoid)
-            .then(() => session.detach())
-            .catch(constVoid),
+        Effect.promise(() => session.send("Page.stopScreencast").catch(constVoid)).pipe(
+          Effect.interruptible,
+          Effect.timeoutOption("2 seconds"),
+          Effect.andThen(
+            Effect.promise(() => session.detach().catch(constVoid)).pipe(
+              Effect.interruptible,
+              Effect.timeoutOption("2 seconds"),
+            ),
+          ),
         ),
     );
     const quality = Math.min(100, Math.max(1, Math.round(input.quality)));
@@ -2405,10 +2408,14 @@ const make = Effect.gen(function* () {
       });
     });
     broadcastViewport(tab);
-    yield* Effect.promise(() => startScreencast(1));
-    // An idle page does not repaint for a new screencast, so the viewer
-    // starts from a still unless a live frame beat it.
-    if (!screencastStarted) yield* Effect.promise(pushStill);
+    // Accept the stream and deliver control before waiting on Chromium. A cold
+    // desktop guest can stall capture until its host makes it paintable again.
+    yield* Effect.promise(() => startScreencast(1)).pipe(
+      Effect.andThen(
+        Effect.suspend(() => (screencastStarted ? Effect.void : Effect.promise(pushStill))),
+      ),
+      Effect.forkScoped,
+    );
     return {
       output,
       input: (raw: unknown) =>
