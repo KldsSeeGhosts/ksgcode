@@ -174,6 +174,7 @@ const layerService = (input: {
         PI_CODING_AGENT_DIR: NodePath.join(input.home, "pi"),
         OPENCODE_DATA_DIR: NodePath.join(input.home, "opencode"),
         ANTIGRAVITY_DATA_DIR: NodePath.join(input.home, "antigravity"),
+        ZCODE_DATA_DIR: NodePath.join(input.home, "zcode"),
         XDG_CONFIG_HOME: NodePath.join(input.home, "config"),
         APPDATA: NodePath.join(input.home, "config"),
         ...input.environment,
@@ -1310,6 +1311,102 @@ describe("UsageService", () => {
         sourcesFor("antigravity")[0]?.fingerprint.resolvedHomePath,
         yield* Effect.promise(() => NodeFSP.realpath(conversations)),
       );
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("collects and prices ZCode history once across disabled and aliased instances", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      const root = NodePath.join(home, "zcode");
+      const alias = NodePath.join(home, "zcode-alias");
+      yield* Effect.promise(async () => {
+        await NodeFSP.mkdir(NodePath.join(root, "db"), { recursive: true });
+        await NodeFSP.symlink(root, alias);
+        const db = new NodeSqlite.DatabaseSync(NodePath.join(root, "db", "db.sqlite"));
+        try {
+          db.exec(
+            `CREATE TABLE model_usage (
+               id TEXT, session_id TEXT, provider_id TEXT, model_id TEXT,
+               started_at INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+               reasoning_tokens INTEGER, cache_creation_input_tokens INTEGER,
+               cache_read_input_tokens INTEGER, status TEXT
+             )`,
+          );
+          db.prepare("INSERT INTO model_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+            "request-1",
+            "session-1",
+            "account:zai-individual-coding-plan",
+            "GLM-5.3-Flash",
+            Date.parse("2026-08-01T10:00:00Z"),
+            100,
+            20,
+            5,
+            0,
+            30,
+            "completed",
+          );
+        } finally {
+          db.close();
+        }
+      });
+      const service = yield* UsageService.make.pipe(
+        Effect.provide(
+          layerService({
+            prefix: "usage-service-zcode-test",
+            home,
+            ratesDocument: {
+              "zai/glm-5.3-flash": {
+                input_cost_per_token: 1.5e-7,
+                output_cost_per_token: 5e-7,
+                cache_read_input_token_cost: 3e-8,
+              },
+              "reseller/glm-5.3-flash": {
+                input_cost_per_token: 4e-7,
+                output_cost_per_token: 1e-6,
+              },
+            },
+            settings: {
+              providerInstances: {
+                ...settings.providerInstances,
+                [ProviderInstanceId.make("zcode")]: {
+                  driver: ProviderDriverKind.make("zcode"),
+                  config: { enabled: false },
+                },
+                [ProviderInstanceId.make("zcode-other")]: {
+                  driver: ProviderDriverKind.make("zcode"),
+                  environment: [{ name: "ZCODE_DATA_DIR", value: alias, sensitive: false }],
+                },
+              },
+            },
+          }),
+        ),
+      );
+      const summary = yield* service.readSummary(WINDOW);
+      assert.strictEqual(
+        summary.sources.filter((source) => source.fingerprint.provider === "zcode").length,
+        1,
+      );
+      const bucket = summary.buckets.find((entry) => entry.provider === "zcode");
+      assert.strictEqual(bucket?.model, "GLM-5.3-Flash");
+      assert.strictEqual(bucket?.records, 1);
+      assert.strictEqual(bucket?.sessions, 1);
+      assert.strictEqual(bucket?.unpricedRecords, 0);
+      assert.strictEqual(bucket?.costSource, "modelPriced");
+      assert.deepStrictEqual(bucket?.totals, {
+        uncachedInputTokens: 70,
+        cachedInputTokens: 30,
+        cacheCreationTokens: 0,
+        outputTokens: 20,
+        reasoningTokens: 5,
+      });
+      assert.approximately(bucket?.costUsd ?? 0, 0.0000214, 1e-12);
+      assert.approximately(bucket?.cacheSavingsUsd ?? 0, 0.0000036, 1e-12);
+      const merged = mergeUsage(
+        [{ environmentId: EnvironmentId.make("zcode-environment"), label: "ZCode", summary }],
+        summary.contractVersion,
+      );
+      assert.strictEqual(merged.totalTokens, 120);
+      assert.approximately(merged.costUsd, 0.0000214, 1e-12);
     }).pipe(Effect.scoped),
   );
 

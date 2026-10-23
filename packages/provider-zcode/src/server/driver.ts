@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema";
 import { ZcodeSettings } from "../settings.ts";
 import { mapZcodeElicitationForm } from "./elicitation.ts";
 import { zcodeMaintenance } from "./maintenance.ts";
+import { zcodeUsageReader } from "./usage.ts";
 
 export const ZCODE_PROVIDER = ProviderDriverKind.make("zcode");
 
@@ -67,10 +68,13 @@ const definition: AcpAgentDriverDefinition<ZcodeSettings> = {
   toRegistrySettings: zcodeRegistrySettings,
 };
 
-export const ZcodeDriver = makeAcpAgentDriver({
-  ...definition,
-  maintenance: zcodeMaintenance,
-  metadata: { displayName: "ZCode", supportsMultipleInstances: true },
-});
+export const ZcodeDriver = {
+  ...makeAcpAgentDriver({
+    ...definition,
+    maintenance: zcodeMaintenance,
+    metadata: { displayName: "ZCode", supportsMultipleInstances: true },
+  }),
+  usage: zcodeUsageReader,
+};
 
 export const ZcodeAdapterV2Driver = makeAcpAgentAdapterV2Driver(definition);
