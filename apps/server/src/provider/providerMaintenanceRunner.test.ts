@@ -594,6 +594,51 @@ describe("providerMaintenanceRunner", () => {
       ),
   );
 
+  it.effect("still warns when native Codex remains behind its own release channel", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* makeRegistry({ ...baseProvider, version: "0.163.0" });
+      let checks = 0;
+      const updater = yield* makeTestRunner({
+        ...registry,
+        getProviderMaintenanceCapabilitiesForInstance: () =>
+          Effect.succeed({
+            ...makeProviderMaintenanceCapabilities({
+              provider: CODEX_DRIVER,
+              packageName: "@openai/codex",
+              updateExecutable: "codex",
+              updateArgs: ["update"],
+              updateLockKey: "codex-native",
+            }),
+            latestVersionLookup: {
+              cacheKey: "codex-standalone:releases:latest",
+              read: Effect.sync(() => {
+                checks++;
+                return "0.164.0";
+              }),
+            },
+          }),
+      });
+      const result = yield* updater.updateProvider(CODEX_DRIVER);
+      assert.strictEqual(checks, 2);
+      assert.strictEqual(result.providers[0]?.updateState?.status, "unchanged");
+      assert.strictEqual(
+        result.providers[0]?.updateState?.message,
+        "Update command completed, but T3 Code still detects an outdated provider version.",
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          layerNonWindowsPlatform,
+          Layer.succeed(
+            HttpClient.HttpClient,
+            HttpClient.make(() => Effect.die("Native Codex must not look up npm")),
+          ),
+          layerMockSpawner(() => ({ code: 0, stdout: "updated" })),
+        ),
+      ),
+    ),
+  );
+
   it.effect("prevents concurrent updates for the same provider", () => {
     const startedLatch: { resolve: () => void } = { resolve: () => {} };
     const releaseLatch: { resolve: () => void } = { resolve: () => {} };
