@@ -1773,6 +1773,92 @@ body {
   background-size: var(--surface-grain-size);
 }
 
+/* Native materials are already blurred by the OS. Keep one translucent paint
+   layer per region rather than stacking full-window CSS backdrop filters. */
+html[data-native-window-material] {
+  --window-chrome-surface: color-mix(
+    in srgb,
+    var(--app-chrome-background) var(--window-chrome-opacity),
+    transparent
+  );
+  --window-sidebar-surface: color-mix(
+    in srgb,
+    var(--sidebar) var(--window-chrome-opacity),
+    transparent
+  );
+  --window-reading-surface: color-mix(
+    in srgb,
+    var(--background) var(--window-reading-opacity),
+    transparent
+  );
+  background-color: transparent !important;
+}
+
+html[data-native-window-material] body {
+  background-color: transparent !important;
+}
+
+html[data-native-window-material] [data-app-sidebar] [data-slot="sidebar-inner"] {
+  background-color: var(--window-sidebar-surface);
+}
+
+html[data-native-window-material] [data-slot="sidebar-inset"],
+html[data-native-window-material] [data-chat-reading] {
+  background-color: var(--window-reading-surface);
+}
+
+html[data-native-window-material] [data-slot="sidebar-inset"]:has([data-chat-layout]),
+html[data-native-window-material] [data-chat-layout] {
+  background-color: transparent;
+}
+
+html[data-native-window-material] [data-chat-header] {
+  background-color: var(--window-chrome-surface);
+}
+
+html[data-window-material="liquid"] {
+  --glass-material-rim: color-mix(in srgb, var(--foreground) 18%, transparent);
+  --glass-material-edge: color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+
+html[data-window-material="liquid"] [data-thread-row-card][aria-current="page"] {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--foreground) 7%, transparent),
+    color-mix(in srgb, var(--foreground) 2%, transparent)
+  );
+  box-shadow:
+    inset 0 1px var(--glass-material-rim),
+    inset 0 0 0 1px var(--glass-material-edge);
+}
+
+html[data-window-material="liquid"] [data-sidebar-thread-search] {
+  background-color: color-mix(in srgb, var(--sidebar-foreground) 5%, transparent);
+  box-shadow:
+    inset 0 1px var(--glass-material-edge),
+    inset 0 0 0 1px var(--glass-material-edge);
+}
+
+html[data-window-material="liquid"] [data-slot="composer-shell"] {
+  --chat-composer-outline: var(--glass-material-edge);
+  --chat-composer-highlight: var(--glass-material-rim);
+}
+
+html[data-window-material="liquid"] [data-slot="composer-host"] {
+  box-shadow:
+    inset 0 1px var(--glass-material-rim),
+    inset 0 -1px var(--glass-material-edge),
+    0 18px 40px -20px rgb(0 0 0 / 45%);
+}
+
+html[data-window-material="liquid"] [data-workspace-panel-controls] {
+  height: 2rem;
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, var(--popover) var(--glass-opacity), transparent);
+  box-shadow:
+    inset 0 1px var(--glass-material-rim),
+    inset 0 0 0 1px var(--glass-material-edge);
+}
+
 pre,
 code {
   font-family: var(--font-mono);

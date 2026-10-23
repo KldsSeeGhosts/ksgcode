@@ -105,6 +105,43 @@ export function AppearanceSettingsPanel() {
 
       <SettingsSection id="appearance-interface" title="Interface">
         <SettingsRow
+          {...searchableSetting("window-material")}
+          description="Frosted and Liquid glass tint the desktop window on macOS and supported Windows 11 builds. Browsers use glass within the page. Unsupported systems and reduced-transparency settings keep a solid window."
+          resetAction={
+            settings.windowMaterial !== DEFAULT_UNIFIED_SETTINGS.windowMaterial ? (
+              <SettingResetButton
+                label="window material"
+                onClick={() =>
+                  updateSettings({ windowMaterial: DEFAULT_UNIFIED_SETTINGS.windowMaterial })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.windowMaterial}
+              onValueChange={(windowMaterial) => {
+                if (
+                  windowMaterial === "solid" ||
+                  windowMaterial === "frosted" ||
+                  windowMaterial === "liquid"
+                ) {
+                  updateSettings({ windowMaterial });
+                }
+              }}
+            >
+              <SelectTrigger aria-label="Window material" className="w-full sm:w-52">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value="solid">Solid</SelectItem>
+                <SelectItem value="frosted">Frosted</SelectItem>
+                <SelectItem value="liquid">Liquid glass</SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+        <SettingsRow
           {...searchableSetting("setting-appearance-contrast")}
           description="Adjust the contrast of colors and borders across the interface."
           resetAction={
@@ -154,7 +191,7 @@ export function AppearanceSettingsPanel() {
 
         <SettingsRow
           {...searchableSetting("setting-glass-opacity")}
-          description="Higher values make menus, dialogs, and the composer more solid."
+          description="Higher values make glass surfaces more solid. At 100%, window translucency and blur are disabled."
           resetAction={
             settings.glassOpacity !== DEFAULT_UNIFIED_SETTINGS.glassOpacity ? (
               <SettingResetButton

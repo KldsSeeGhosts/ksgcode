@@ -57,6 +57,7 @@ function layerElectronApp(
 
 const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
   shouldUseDarkColors: Effect.succeed(false),
+  shouldUseOpaqueBackgrounds: Effect.succeed(false),
   setSource: () => Effect.void,
   onUpdated: () => Effect.void,
 });
@@ -99,6 +100,7 @@ function layerDesktopWindow(
     zoomMain: () => Effect.void,
     runMainContentsCommand: () => Effect.void,
     syncAppearance: Effect.void,
+    getWindowMaterial: Effect.succeed("solid" as const),
   });
 }
 

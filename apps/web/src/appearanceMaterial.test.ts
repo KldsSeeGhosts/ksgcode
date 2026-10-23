@@ -1,0 +1,66 @@
+import { describe, expect, it } from "vite-plus/test";
+import { resolveAppearanceMaterial } from "./appearanceMaterial";
+
+const defaults = {
+  material: "liquid",
+  opacity: 80,
+  reducedTransparency: false,
+  supportsBackdropFilter: true,
+  desktop: true,
+  nativeMaterial: "liquid",
+} as const;
+
+describe("appearance material", () => {
+  it("keeps the reading layer dense while making chrome clearer", () => {
+    const result = resolveAppearanceMaterial(defaults);
+    expect(result.material).toBe("liquid");
+    expect(result.native).toBe(true);
+    expect(result.chromeOpacity).toBeCloseTo(34);
+    expect(result.readingOpacity).toBe(84);
+    expect(result.glassOpacity).toBe(72);
+    expect(result.chromeOpacity).toBeLessThan(result.readingOpacity);
+    expect(resolveAppearanceMaterial({ ...defaults, opacity: 40 }).readingOpacity).toBe(82);
+  });
+
+  it("keeps existing glass behavior when the window material is solid", () => {
+    expect(
+      resolveAppearanceMaterial({ ...defaults, material: "solid", nativeMaterial: "solid" }),
+    ).toMatchObject({
+      material: "solid",
+      native: false,
+      glassOpacity: 80,
+      blur: null,
+      saturation: null,
+    });
+  });
+
+  it("does not expose the desktop until the native shell confirms its material", () => {
+    expect(resolveAppearanceMaterial({ ...defaults, nativeMaterial: "solid" })).toMatchObject({
+      material: "solid",
+      native: false,
+    });
+    expect(
+      resolveAppearanceMaterial({ ...defaults, desktop: false, nativeMaterial: "solid" }),
+    ).toMatchObject({ material: "liquid", native: false });
+    expect(resolveAppearanceMaterial({ ...defaults, material: "frosted" })).toMatchObject({
+      material: "frosted",
+      native: true,
+    });
+  });
+
+  it("makes every layer solid at full opacity or with reduced transparency", () => {
+    for (const override of [{ opacity: 100 }, { reducedTransparency: true }]) {
+      expect(resolveAppearanceMaterial({ ...defaults, ...override })).toMatchObject({
+        material: "solid",
+        native: false,
+        glassOpacity: 100,
+        chromeOpacity: 100,
+        readingOpacity: 100,
+        blur: "0px",
+      });
+    }
+    expect(resolveAppearanceMaterial({ ...defaults, supportsBackdropFilter: false })).toMatchObject(
+      { material: "solid", native: false },
+    );
+  });
+});

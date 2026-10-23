@@ -57,6 +57,8 @@ import { isElectron } from "../env";
 import { cn } from "../lib/utils";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
+import { applyAppearanceMaterial } from "~/appearanceMaterial";
+import { useWindowMaterial } from "../hooks/useWindowMaterial";
 import { useClientSettings } from "../hooks/useSettings";
 import {
   deriveLogicalProjectKeyFromSettings,
@@ -294,16 +296,19 @@ function ContrastAppearanceSync() {
 
 function GlassAppearanceSync() {
   const glassOpacity = useClientSettings((settings) => settings.glassOpacity);
+  const windowMaterial = useClientSettings((settings) => settings.windowMaterial);
+  const { nativeMaterial, reducedTransparency } = useWindowMaterial();
 
   useEffect(() => {
-    const style = document.documentElement.style;
-    style.setProperty("--glass-opacity", `${glassOpacity}%`);
-    if (glassOpacity === 100) {
-      style.setProperty("--glass-blur", "0px");
-    } else {
-      style.removeProperty("--glass-blur");
-    }
-  }, [glassOpacity]);
+    applyAppearanceMaterial(document.documentElement, {
+      material: windowMaterial,
+      opacity: glassOpacity,
+      reducedTransparency,
+      supportsBackdropFilter: CSS.supports("backdrop-filter", "blur(1px)"),
+      desktop: isElectron,
+      nativeMaterial,
+    });
+  }, [glassOpacity, windowMaterial, nativeMaterial, reducedTransparency]);
 
   return null;
 }

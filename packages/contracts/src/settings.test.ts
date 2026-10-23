@@ -27,6 +27,22 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("window material settings", () => {
+  it("preserves the current appearance for existing clients", () => {
+    expect(decodeClientSettings({}).windowMaterial).toBe("solid");
+  });
+
+  it("persists material choices and rejects unknown materials", () => {
+    for (const windowMaterial of ["solid", "frosted", "liquid"]) {
+      expect(decodeClientSettingsPatch({ windowMaterial })).toEqual({ windowMaterial });
+      expect(encodeClientSettings(decodeClientSettings({ windowMaterial })).windowMaterial).toBe(
+        windowMaterial,
+      );
+    }
+    expect(() => decodeClientSettingsPatch({ windowMaterial: "unknown" })).toThrow();
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

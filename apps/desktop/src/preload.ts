@@ -86,6 +86,19 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.sendSync(IpcChannels.GET_RELAY_TELEMETRY_ENABLED_CHANNEL) === true,
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getClientPlatform: () => clientPlatform,
+  getWindowMaterial: () => {
+    const material: unknown = ipcRenderer.sendSync(IpcChannels.GET_WINDOW_MATERIAL_CHANNEL);
+    return material === "frosted" || material === "liquid" ? material : "solid";
+  },
+  onWindowMaterialChange: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, material: unknown) => {
+      if (material === "solid" || material === "frosted" || material === "liquid") {
+        listener(material);
+      }
+    };
+    ipcRenderer.on(IpcChannels.WINDOW_MATERIAL_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(IpcChannels.WINDOW_MATERIAL_CHANNEL, handler);
+  },
   setNotificationBadge: (badge) =>
     ipcRenderer.invoke(IpcChannels.SET_NOTIFICATION_BADGE_CHANNEL, badge),
   onNotificationBadgeClear: (listener) => {

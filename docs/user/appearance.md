@@ -14,6 +14,15 @@ Use **Change appearance** in the command palette to choose System, Light, or Dar
 the theme. **Cmd+Option+Shift+A** on macOS or **Ctrl+Alt+Shift+A** on Windows/Linux cycles through
 those modes. Customize these shortcuts under **Settings → Keybindings**.
 
+On desktop, **Settings → Appearance → Window material** offers Solid, Frosted, and Liquid glass.
+Glass materials let the desktop tint the frame while keeping the conversation readable.
+Native translucency requires macOS or Windows 11 22H2 or later; other systems keep a solid window.
+Browsers apply glass only within the page, not through to the desktop. The choice is saved on
+this client and does not change connected environments or native mobile.
+
+**Glass opacity** controls how solid glass surfaces appear. At 100%, window translucency and
+blur are disabled. System reduced-transparency and high-contrast settings also keep the window solid.
+
 On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
 code, and terminal preferences. It does not follow environment themes or defaults.
 

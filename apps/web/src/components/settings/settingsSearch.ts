@@ -220,6 +220,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["colors borders interface"],
   },
   {
+    id: "window-material",
+    title: "Window material",
+    to: "/settings/appearance",
+    searchTerms: ["frosted liquid glass native vibrancy mica transparency solid desktop"],
+  },
+  {
     // Prefixed because the slider control already owns the `glass-opacity` id.
     id: "setting-glass-opacity",
     title: "Glass opacity",
