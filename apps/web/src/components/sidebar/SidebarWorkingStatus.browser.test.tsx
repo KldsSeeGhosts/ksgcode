@@ -57,8 +57,8 @@ afterEach(async () => {
 });
 
 function statusElement() {
-  const element = container.querySelector<HTMLElement>('[role="status"]');
-  if (!element) throw new Error("Status was not rendered");
+  const element = container.firstElementChild;
+  if (!(element instanceof HTMLElement)) throw new Error("Status was not rendered");
   return element;
 }
 
@@ -104,7 +104,7 @@ describe("SidebarWorkingStatus", () => {
     expect(observers).toHaveLength(1);
     expect(status.style.getPropertyValue("--visible-animation-state")).toBe("running");
 
-    await act(async () => root.render(<span role="status">Done</span>));
+    await act(async () => root.render(<span>Done</span>));
     expect(statusElement().textContent).toBe("Done");
     expect(observer.targets.size).toBe(0);
     expect(observer.disconnect).toHaveBeenCalledTimes(1);

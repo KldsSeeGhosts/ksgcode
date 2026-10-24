@@ -54,6 +54,7 @@ export type BuiltInUsageReadersEnv =
   | ProviderUsageReaderEnv<typeof AntigravityDriver>
   | ProviderUsageReaderEnv<typeof CursorDriver>
   | ProviderUsageReaderEnv<typeof PiDriver>
+  | ProviderUsageReaderEnv<typeof MuseDriver>
   | ProviderUsageReaderEnv<typeof ZcodeDriver>;
 
 /**
@@ -68,6 +69,7 @@ export const BUILT_IN_USAGE_DRIVERS: ReadonlyArray<
   GrokDriver,
   PiDriver,
   OpenCodeDriver,
+  MuseDriver,
   AntigravityDriver,
   CursorDriver,
   ZcodeDriver,
