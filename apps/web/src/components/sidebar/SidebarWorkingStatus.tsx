@@ -4,11 +4,18 @@ import { cn } from "~/lib/utils";
 import styles from "./SidebarWorkingStatus.module.css";
 
 /** Keep one accessible label while the timeline's highlight sweeps over stationary text. */
-export function SidebarWorkingStatus({ label }: { label: string }) {
+export function SidebarWorkingStatus({
+  label,
+  announce = true,
+}: {
+  label: string;
+  /** Off when another region already announces the thread's status. */
+  announce?: boolean;
+}) {
   return (
     <span
       ref={observeVisibleAnimation}
-      role="status"
+      role={announce ? "status" : undefined}
       className="relative inline-flex overflow-hidden"
     >
       <span className="sr-only">{label}</span>

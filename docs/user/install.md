@@ -41,7 +41,7 @@ for an independent server.
 ### Intel Macs
 
 There is no `t3` executable or desktop installer for Intel Macs. To
-run a server there, build it from source with Node.js 24 and `vp`
+run a server there, build it from source with `vp`, which provides the Node version it needs
 ([Install vp](https://github.com/pingdotgg/t3code#install-vp)):
 
 ```bash

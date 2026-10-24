@@ -1377,11 +1377,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           ) : null}
                           {/* The label alone is the live region: a role="status"
                             wrapper around the ticking duration would make
-                            screen readers announce every second. */}
+                            screen readers announce every second. The open
+                            thread announces its own status, so its row stays
+                            quiet instead of saying everything twice. */}
                           {topStatus.icon === "working" ? (
-                            <SidebarWorkingStatus label={topStatus.label} />
+                            <SidebarWorkingStatus
+                              label={topStatus.label}
+                              announce={!props.isRouteThread}
+                            />
                           ) : (
-                            <span role="status">{topStatus.label}</span>
+                            <span role={props.isRouteThread ? undefined : "status"}>
+                              {topStatus.label}
+                            </span>
                           )}
                           {status === "working" ? (
                             <span aria-hidden>
