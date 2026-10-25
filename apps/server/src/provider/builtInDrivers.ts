@@ -57,10 +57,7 @@ export type BuiltInUsageReadersEnv =
   | ProviderUsageReaderEnv<typeof MuseDriver>
   | ProviderUsageReaderEnv<typeof ZcodeDriver>;
 
-/**
- * Aggregation keeps the first copy of a duplicate record, so the order is part
- * of the result.
- */
+/** Order matters: aggregation keeps the first duplicate record. */
 export const BUILT_IN_USAGE_DRIVERS: ReadonlyArray<
   AnyProviderDriver<BuiltInDriversEnv, BuiltInUsageReadersEnv>
 > = [

@@ -51,9 +51,7 @@ const encodeProfileSettings = Schema.encodeSync(Schema.fromJsonString(ProfileSet
 const isAcpRequestError = Schema.is(AcpErrors.AcpRequestError);
 const isAcpTransportError = Schema.is(AcpErrors.AcpTransportError);
 
-// Python splits BROWSER on the platform path separator before it parses quotes.
-// EPIPE must still exit 0 so Python does not fall back to an OS browser after
-// cancellation.
+// Python splits BROWSER on path separators before parsing quotes. Exit 0 on EPIPE to prevent browser fallback after cancellation.
 const browserHelperSource =
   `process.stderr.on("error",()=>process.exit(0)).write(` +
   `"${ANTIGRAVITY_AUTH_BROWSER_MARKER}"+JSON.stringify(process.argv[1])+"\\n",` +
@@ -199,10 +197,7 @@ export function isAntigravitySignInRequiredError(error: unknown): boolean {
 
 export interface AntigravityInstanceDirectories {
   readonly profile: string;
-  /**
-   * It sits beside the profile, not inside it: the agent unpacks members up to 120 characters deep,
-   * and the profile's longer name would push them past Windows' 260-character path limit.
-   */
+  /** Keep beside the profile: 120-character archive members under its longer name would exceed Windows' 260-character limit. */
   readonly runtimeTemp: string;
 }
 
@@ -250,9 +245,7 @@ function antigravityEnvironment(
               ...(auth.gatewayModels ? { AGY_LLM_GATEWAY_MODELS: auth.gatewayModels } : {}),
             }
           : {};
-  // It unpacks about 1 GB into the system temp directory per launch and a force
-  // kill leaves that behind. Point it at a T3-owned directory so the driver can
-  // reclaim the space.
+  // Each launch unpacks about 1 GB; use T3-owned temp so the driver can reclaim files after force-kill.
   const tempDirectory = runtimeTempDirectory ?? profile.tempDirectory;
   return {
     ...environment,
@@ -273,12 +266,7 @@ function antigravityEnvironment(
   };
 }
 
-/**
- * The agent reads its user-global skills under `GEMINI_HOME`, which T3 points
- * at the private profile. Link the two skill directories back to the user's
- * real `~/.gemini` so global skills load, while MCP servers, hooks, and
- * credentials stay isolated.
- */
+/** Private GEMINI_HOME isolates credentials/hooks/MCP; link global skills from the real ~/.gemini. */
 const linkAntigravityUserSkills = Effect.fn("linkAntigravityUserSkills")(function* (input: {
   readonly profileDirectory: string;
   readonly userHome: string;

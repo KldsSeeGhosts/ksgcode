@@ -65,10 +65,7 @@ function standaloneReleaseLookup(env: NodeJS.ProcessEnv) {
   };
 }
 
-/**
- * The standalone tree lives in the shared home even when the instance uses an
- * auth-overlay shadow home. The updater must replace that shared tree.
- */
+/** `codex update` owns the shared home's standalone tree; auth-overlay homes do not carry it. */
 export const makeCodexMaintenanceResolver = Effect.fn("makeCodexMaintenanceResolver")(function* (
   sharedHomePath: string,
 ) {
