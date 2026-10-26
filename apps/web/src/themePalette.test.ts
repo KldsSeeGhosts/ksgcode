@@ -62,7 +62,7 @@ function contrastRatio(first: string, second: string): number {
 
 describe("theme files", () => {
   it.each([
-    ["claude", "Claude", "#faf9f5", "#262624"],
+    ["claude", "Claude", "#fcf9fb", "#151515"],
     ["cursor", "Cursor", "#fcfcfc", "#181818"],
   ])(
     "resolves bundled %s light and dark palettes without an imported theme",
