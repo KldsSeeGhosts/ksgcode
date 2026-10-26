@@ -168,20 +168,20 @@ export function PullRequestsColumn({
   return (
     <div
       className={cn(
-        "@container/pr-list flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-pane",
+        "@container/pr-list flex min-h-0 min-w-0 flex-col overflow-x-hidden bg-background",
         maximizedAway ? "w-0 flex-none" : "flex-1",
       )}
     >
       <WorkspacePageHeader
         electron={isElectron}
         reserveNativeControls={!rightPanelOpen}
-        className="relative bg-pane"
+        className="relative bg-background"
       >
         {titlebarControls}
         {condensed ? (
           <WorkspaceBreadcrumb ariaLabel="Pull request scope" className="overflow-hidden">
             <WorkspaceBreadcrumbItem current className={cn(searchExpanded && "sr-only")}>
-              <h1 className="truncate">Pull Requests</h1>
+              <h1 className="truncate">Pull requests</h1>
             </WorkspaceBreadcrumbItem>
             {searchExpanded ? null : <WorkspaceBreadcrumbSeparator />}
             <WorkspaceBreadcrumbItem className="shrink gap-1.5">
@@ -211,7 +211,7 @@ export function PullRequestsColumn({
         ) : (
           <WorkspaceBreadcrumb ariaLabel="Pull requests breadcrumb">
             <WorkspaceBreadcrumbItem current>
-              <h1 className="truncate">Pull Requests</h1>
+              <h1 className="truncate">Pull requests</h1>
             </WorkspaceBreadcrumbItem>
           </WorkspaceBreadcrumb>
         )}

@@ -5,7 +5,10 @@ export interface CdpRelayTarget {
     method: string,
     params: Record<string, unknown>,
     sessionId: string | undefined,
+    /** The extra session that sent it, such as a viewer's; the main connection has none. */
+    owner?: string,
   ) => Promise<unknown>;
+  readonly sessionDetached?: (owner: string) => void;
   /** The page's own CDP target id; Playwright keys the main frame by it. */
   readonly targetId: () => Promise<string>;
   readonly url: () => string;
@@ -13,7 +16,6 @@ export interface CdpRelayTarget {
   readonly userAgent: () => string;
   /** The desktop and its server share a disk; download paths need no translation. */
   readonly setDownloadDirectory: (directory: string | null) => void;
-  readonly setCaptureActive: (active: boolean) => void;
 }
 
 export interface CdpRelayConnection {
@@ -53,13 +55,6 @@ export function createCdpRelayConnection(
   let attached = false;
   /** Relay-created page sessions share one real debugger; child frame sessions retain their own ids. */
   const sessions = new Map<string, "browser" | "page">([[PAGE_SESSION_ID, "page"]]);
-  // stopScreencast also pauses for still captures and scale changes. Only
-  // detaching its owning session makes the guest safe to stop compositing.
-  const capturing = new Set<string>();
-  const screencasts = new Map<string, Record<string, unknown>>();
-  const releaseCapture = (sessionId: string) => {
-    if (capturing.delete(sessionId) && capturing.size === 0) target.setCaptureActive(false);
-  };
   let sessionSequence = 0;
   const newSession = (kind: "browser" | "page") => {
     const sessionId = `t3-preview-${kind}-${++sessionSequence}`;
@@ -120,9 +115,8 @@ export function createCdpRelayConnection(
       case "Target.detachFromTarget": {
         const sessionId = command.params?.["sessionId"];
         if (typeof sessionId === "string" && sessionId !== PAGE_SESSION_ID) {
-          releaseCapture(sessionId);
-          screencasts.delete(sessionId);
           sessions.delete(sessionId);
+          target.sessionDetached?.(sessionId);
         }
         return {};
       }
@@ -144,24 +138,15 @@ export function createCdpRelayConnection(
 
   const pageCommand = (command: CdpCommand): Promise<unknown> => {
     const child = sessions.get(command.sessionId!) === "page" ? undefined : command.sessionId;
-    if (command.method === "Page.startScreencast" && child === undefined) {
-      const wasCapturing = capturing.size > 0;
-      capturing.add(command.sessionId!);
-      screencasts.set(command.sessionId!, command.params ?? {});
-      if (!wasCapturing) target.setCaptureActive(true);
-    }
-    if (command.method === "Page.stopScreencast" && child === undefined) {
-      screencasts.delete(command.sessionId!);
-      // Synthetic sessions share one real screencast. Closing or pausing one
-      // viewer must not stop frames for the others.
-      const remaining = [...screencasts.values()].at(-1);
-      if (remaining) return target.send("Page.startScreencast", remaining, undefined);
-    }
+    const owner =
+      child === undefined && command.sessionId !== PAGE_SESSION_ID ? command.sessionId : undefined;
     // Child frames/workers pause on auto-attach until resumed; only the main page can skip this command.
     if (command.method === "Runtime.runIfWaitingForDebugger" && child === undefined) {
       return Promise.resolve({});
     }
-    return target.send(command.method, command.params ?? {}, child);
+    // Playwright asks for this on every page; the host emulates focus only while it is in use.
+    if (command.method === "Emulation.setFocusEmulationEnabled") return Promise.resolve({});
+    return target.send(command.method, command.params ?? {}, child, owner);
   };
 
   return {

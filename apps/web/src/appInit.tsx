@@ -1,13 +1,20 @@
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import { createBrowserHistory, createHashHistory } from "@tanstack/react-router";
 
 import { applyAppearanceContrast } from "./appearanceContrast";
 import { applyAppearanceFontVariables } from "./appearanceFonts";
-import { applyAppearanceMaterial } from "./appearanceMaterial";
+import { retainThreadOverlaysForThread } from "./components/chat/threadOverlayRetention";
+import { startBackgroundThreadAnnouncements } from "./components/BackgroundThreadAnnouncer";
+import { startSshPasswordPromptQueue } from "./components/desktop/SshPasswordPromptDialog";
+import { startAgentOpenedPreviews } from "./components/preview/agentOpenedPreviews";
+import { startMainAppLocationTracking } from "./components/sidebar/mainAppLocation";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "./branding";
 import { resolveServerBackedAppDisplayName } from "./branding.logic";
 import { isElectron } from "./env";
+import { useComposerDraftStore } from "./composerDraftStore";
 import { getClientSettings, subscribeClientSettings } from "./hooks/useSettings";
+import { startThreadVisitedMigration } from "./hooks/useThreadVisitedMigration";
 import {
   syncDocumentElectronPlatformClasses,
   syncDocumentWindowControlsOverlayClass,
@@ -16,35 +23,12 @@ import { prepareProviderAuthDelivery } from "./providerAuthDelivery";
 import { getRouter, type AppRouter } from "./router";
 import { appAtomRegistry } from "./rpc/atomRegistry";
 import { primaryServerConfigAtom } from "./state/server";
+import { resolveThreadRouteTarget } from "./threadRoutes";
 
 /** Writes appearance settings onto the document, touching only the groups that changed. */
 function startClientAppearance(): void {
   const root = document.documentElement;
   let applied: ClientSettings | null = null;
-
-  // The desktop shell owns the native material; the OS or browser owns reduced transparency.
-  let nativeMaterial = window.desktopBridge?.getWindowMaterial?.() ?? "solid";
-  const reducedTransparency = [
-    window.matchMedia("(prefers-reduced-transparency: reduce)"),
-    window.matchMedia("(forced-colors: active)"),
-  ];
-  const applyMaterial = () => {
-    const settings = getClientSettings();
-    applyAppearanceMaterial(root, {
-      material: settings.windowMaterial,
-      opacity: settings.glassOpacity,
-      reducedTransparency: reducedTransparency.some((query) => query.matches),
-      supportsBackdropFilter: CSS.supports("backdrop-filter", "blur(1px)"),
-      desktop: isElectron,
-      nativeMaterial,
-    });
-  };
-  for (const query of reducedTransparency) query.addEventListener("change", applyMaterial);
-  window.desktopBridge?.onWindowMaterialChange?.((material) => {
-    nativeMaterial = material;
-    applyMaterial();
-  });
-
   const apply = () => {
     const settings = getClientSettings();
     const previous = applied;
@@ -61,11 +45,13 @@ function startClientAppearance(): void {
     if (previous?.appearanceContrast !== settings.appearanceContrast) {
       applyAppearanceContrast(root, settings.appearanceContrast);
     }
-    if (
-      previous?.glassOpacity !== settings.glassOpacity ||
-      previous.windowMaterial !== settings.windowMaterial
-    ) {
-      applyMaterial();
+    if (previous?.glassOpacity !== settings.glassOpacity) {
+      root.style.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
+      if (settings.glassOpacity === 100) {
+        root.style.setProperty("--glass-blur", "0px");
+      } else {
+        root.style.removeProperty("--glass-blur");
+      }
     }
     if (
       previous?.fontFamilySans !== settings.fontFamilySans ||
@@ -106,6 +92,24 @@ function startDocumentTitle(): void {
   );
 }
 
+/** Chat overlays belong to the thread they were opened in, so leaving its route drops them. */
+function startThreadOverlayRetention(router: AppRouter): void {
+  router.subscribe("onResolved", () => {
+    const target = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
+    const draftSession =
+      target?.kind === "draft"
+        ? useComposerDraftStore.getState().getDraftSession(target.draftId)
+        : null;
+    const threadRef =
+      target?.kind === "server"
+        ? target.threadRef
+        : draftSession
+          ? scopeThreadRef(draftSession.environmentId, draftSession.threadId)
+          : null;
+    retainThreadOverlaysForThread(threadRef ? scopedThreadKey(threadRef) : null);
+  });
+}
+
 /**
  * Starts every app-lifetime service once, before the first render, and returns the router.
  * They run for the life of the page, so their disposers are dropped here.
@@ -124,6 +128,12 @@ export function startAppServices(): AppRouter {
 
   startClientAppearance();
   startDocumentTitle();
+  startAgentOpenedPreviews();
+  startThreadOverlayRetention(router);
+  startMainAppLocationTracking(router);
+  startBackgroundThreadAnnouncements(appAtomRegistry, router);
+  startThreadVisitedMigration(appAtomRegistry);
+  startSshPasswordPromptQueue();
 
   return router;
 }

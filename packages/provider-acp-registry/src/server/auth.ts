@@ -144,14 +144,12 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
           .runBackgroundProbe(agentKey, discoverMethods)
           .pipe(
             Effect.flatMap((result) =>
-              Option.isSome(result)
-                ? Effect.succeed(result.value)
-                : Effect.fail(
-                    failure(
-                      "methods",
-                      "Sign-in discovery was interrupted by an active provider session. Try again.",
-                    ),
-                  ),
+              Effect.fromOption(result, () =>
+                failure(
+                  "methods",
+                  "Sign-in discovery was interrupted by an active provider session. Try again.",
+                ),
+              ),
             ),
           )
       : discoverMethods;
@@ -300,11 +298,7 @@ export const makeAcpRegistryAuth = Effect.fn("makeAcpRegistryAuth")(function* (o
           if (method.type === undefined || method.type === "agent") {
             if (!runtime.authenticate)
               return yield* failure("start", "This runtime does not support explicit ACP sign-in.");
-            // A self-handled method may have no `authenticate` handler at
-            // all: the agent keeps its own credentials and never asked the
-            // client to do anything. An unimplemented method is that case,
-            // not a failed sign-in — the session start below is the real
-            // proof, so let an absent handler fall through to verification.
+            // Self-handled sign-in can omit authenticate; session start verifies it.
             yield* runtime.authenticate(methodId).pipe(
               Effect.catchIf(
                 (error) => error._tag === "AcpRequestError" && error.code === -32601,

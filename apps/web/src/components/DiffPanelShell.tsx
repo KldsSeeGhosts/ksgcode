@@ -14,7 +14,7 @@ function getDiffPanelHeaderRowClassName(mode: DiffPanelMode) {
     mode === "embedded" ? "px-2" : "px-4",
     shouldUseDragRegion
       ? "drag-region h-[var(--workspace-topbar-height)] border-b border-border wco:pr-(--workspace-native-controls-inset)"
-      : "flex h-10 min-h-10 shrink-0 items-center border-b border-border/60 bg-pane in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent",
+      : "flex h-10 min-h-10 shrink-0 items-center border-b border-border/60 bg-background in-data-[preview-panel-mode=inline]:mb-3 in-data-[preview-panel-mode=inline]:h-7 in-data-[preview-panel-mode=inline]:min-h-7 in-data-[preview-panel-mode=inline]:border-b-transparent",
   );
 }
 
@@ -28,7 +28,7 @@ export function DiffPanelShell(props: {
   return (
     <div
       className={cn(
-        "flex h-full min-w-0 flex-col bg-pane",
+        "flex h-full min-w-0 flex-col bg-background",
         props.mode === "inline"
           ? "w-[42vw] min-w-[360px] max-w-[560px] shrink-0 border-l border-border"
           : "w-full",
@@ -92,7 +92,7 @@ function DiffCodeLineSkeleton({ width }: { width: "short" | "medium" | "long" })
 export function DiffPanelLoadingState(props: { label: string }) {
   return (
     <div
-      className="min-h-0 flex-1 overflow-hidden bg-pane"
+      className="min-h-0 flex-1 overflow-hidden bg-background"
       role="status"
       aria-live="polite"
       aria-label={props.label}

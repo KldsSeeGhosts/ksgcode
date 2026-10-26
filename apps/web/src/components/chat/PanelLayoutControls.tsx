@@ -208,9 +208,7 @@ export function WorkspaceTitlebarControls(props: {
           />
         </span>
       ) : null}
-      <div data-workspace-panel-controls className="pointer-events-auto flex h-full items-center">
-        {props.children}
-      </div>
+      <div className="pointer-events-auto flex h-full items-center">{props.children}</div>
     </div>
   );
 }

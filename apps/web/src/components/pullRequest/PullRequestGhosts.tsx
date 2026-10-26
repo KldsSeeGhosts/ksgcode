@@ -51,30 +51,31 @@ const DEFAULT_DETAIL_TABS = [
 
 export function PullRequestListGhost({ rows = 7, caption }: { rows?: number; caption?: string }) {
   return (
-    <div
-      role="status"
-      aria-label={caption ?? "Loading pull requests"}
-      className="motion-safe:animate-skeleton space-y-0.5"
-    >
+    <div role="status" aria-label={caption ?? "Loading pull requests"} className="space-y-0.5">
+      {/* Outside the pulse so the explanation stays readable. */}
       {caption ? (
-        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/70">{caption}</p>
+        <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/70 redesign:text-muted-foreground">
+          {caption}
+        </p>
       ) : null}
-      {Array.from({ length: rows }, (_, index) => (
-        <div
-          key={index}
-          className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3 py-2.5"
-        >
-          <GhostBar className="size-4 rounded-full" />
-          <div className="min-w-0 space-y-1.5">
-            <GhostBar className={cn("h-4", TITLE_WIDTHS[index % TITLE_WIDTHS.length])} />
-            <GhostBar className={cn("h-3.5", META_WIDTHS[index % META_WIDTHS.length])} />
+      <div className="motion-safe:animate-skeleton space-y-0.5">
+        {Array.from({ length: rows }, (_, index) => (
+          <div
+            key={index}
+            className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3 py-2.5"
+          >
+            <GhostBar className="size-4 rounded-full" />
+            <div className="min-w-0 space-y-1.5">
+              <GhostBar className={cn("h-4", TITLE_WIDTHS[index % TITLE_WIDTHS.length])} />
+              <GhostBar className={cn("h-3.5", META_WIDTHS[index % META_WIDTHS.length])} />
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              <GhostBar className="w-12" />
+              <GhostBar className="w-16" />
+            </div>
           </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <GhostBar className="w-12" />
-            <GhostBar className="w-16" />
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -131,7 +132,7 @@ export function PullRequestDetailGhost({
       role="status"
       aria-label={`Loading ${terminology.singular}`}
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden bg-pane",
+        "flex h-full min-h-0 flex-col overflow-hidden bg-background",
         !seed && "motion-safe:animate-skeleton",
       )}
     >
@@ -347,7 +348,7 @@ export function PullRequestDetailGhost({
         </section>
 
         <section>
-          <div className="sticky top-0 z-10 flex w-full items-center pane-sticky pr-4">
+          <div className="sticky top-0 z-10 flex w-full items-center bg-background pr-4">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-xs font-medium text-muted-foreground">
               <span>Description</span>
               <ChevronRightIcon

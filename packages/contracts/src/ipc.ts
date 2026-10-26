@@ -12,12 +12,7 @@ import type {
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
 import { ExecutionEnvironmentDescriptor } from "./environment.ts";
-import {
-  type ClientSettings,
-  type QuitConfirmationMode,
-  type WindowMaterial,
-  SnapShotShortcut,
-} from "./settings.ts";
+import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type { PreviewForwardedShortcut } from "./keybindings.ts";
 
@@ -590,12 +585,13 @@ export interface DesktopPreviewTabState {
   canGoForward: boolean;
   zoomFactor: number;
   pictureInPicture: boolean;
-  capturing?: boolean;
   colorScheme: DesktopPreviewColorScheme;
   audioMuted: boolean;
   /** Chromium reports playback even when audioMuted is true. */
   audible: boolean;
   controller: "human" | "agent" | "none";
+  /** A screenshot or stream of the guest is pending, so the client keeps it painting while hidden. */
+  capturing: boolean;
   favicon?: DesktopPreviewFavicon;
   updatedAt: string;
 }
@@ -1101,8 +1097,6 @@ export interface DesktopBridge {
   onSnapShotEvent?: (listener: (event: DesktopSnapShotEvent) => void) => () => void;
   onQuitShortcut?: (listener: (event: QuitShortcutHintEvent) => void) => () => void;
   getWindowFullscreenState: () => boolean;
-  getWindowMaterial?: () => WindowMaterial;
-  onWindowMaterialChange?: (listener: (material: WindowMaterial) => void) => () => void;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
   /** App window zoom; older desktop shells omit this method. */
   getWindowZoomFactor?: () => number;

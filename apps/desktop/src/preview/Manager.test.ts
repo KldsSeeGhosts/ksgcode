@@ -147,6 +147,7 @@ const {
 
 vi.mock("electron", () => ({
   BrowserWindow: browserWindowConstructor,
+  // oxlint-disable-next-line typescript/no-extraneous-class -- This constructor-only mock implements the browser ClipboardItem API.
   ClipboardItem: class {
     constructor(data: Record<string, unknown>) {
       clipboardItemConstructor(data);
@@ -1712,7 +1713,7 @@ describe("PreviewManager", () => {
     }).pipe(Effect.provide(managerLayer()), Effect.scoped),
   );
 
-  effectIt.effect("keeps a remotely captured native tab unthrottled until its relay releases", () =>
+  effectIt.effect("keeps a remotely captured native tab painting until its relay releases", () =>
     Effect.gen(function* () {
       const host = yield* DesktopBrowserHost.DesktopBrowserHost;
       const manager = yield* PreviewManager.PreviewManager;
@@ -1749,12 +1750,69 @@ describe("PreviewManager", () => {
         }),
       );
       expect((yield* Queue.take(states)).capturing).toBe(true);
-      expect(contents.setBackgroundThrottling).toHaveBeenLastCalledWith(false);
       expect(capturePage).not.toHaveBeenCalled();
       yield* host.handleCommandLine(JSON.stringify({ type: "release", ...serverTab }));
       expect((yield* Queue.take(states)).capturing).toBe(false);
-      expect(contents.setBackgroundThrottling).toHaveBeenLastCalledWith(true);
     }).pipe(Effect.provide(managerLayer()), Effect.scoped),
+  );
+
+  effectIt.effect(
+    "asks the client to paint a navigated server tab while the agent captures it",
+    () =>
+      Effect.gen(function* () {
+        const host = yield* DesktopBrowserHost.DesktopBrowserHost;
+        const serverTab = { threadId: "thread-1", tabId: "server-tab-1" };
+        const contents = Object.assign(
+          makeTestPreviewWebContents(async () => {
+            throw new Error("unused");
+          }, 42),
+          {
+            isDevToolsOpened: () => false,
+            getUserAgent: () => "Electron",
+            loadURL: vi.fn(async () => undefined),
+          },
+        );
+        const screenshot = Promise.withResolvers<unknown>();
+        contents.debugger.sendCommand = vi.fn((method: string) =>
+          method === "Page.captureScreenshot" ? screenshot.promise : Promise.resolve(undefined),
+        ) as unknown as typeof contents.debugger.sendCommand;
+        fromId.mockReturnValue(contents);
+        const manager = yield* PreviewManager.PreviewManager;
+        const capturing = yield* Queue.unbounded<boolean>();
+        yield* manager.subscribeStateChanges((_tabId, state) =>
+          Queue.offer(capturing, state.capturing).pipe(Effect.asVoid),
+        );
+        const attached = yield* Deferred.make<void>();
+        yield* host.events.pipe(
+          Stream.runForEach((line) =>
+            new TextDecoder().decode(line).includes('"type":"attached"')
+              ? Deferred.succeed(attached, undefined)
+              : Effect.void,
+          ),
+          Effect.forkScoped,
+        );
+        yield* manager.createTab("tab_1", { serverTab });
+        yield* manager.registerWebview("tab_1", 42);
+        yield* Deferred.await(attached);
+        // Navigating rebuilds the tab's state, which must keep the server tab it answers for.
+        yield* manager.navigate("tab_1", "https://example.com/next");
+        yield* Queue.clear(capturing);
+
+        yield* host.handleCommandLine(
+          JSON.stringify({
+            type: "cdp",
+            ...serverTab,
+            message: JSON.stringify({
+              id: 1,
+              method: "Page.captureScreenshot",
+              sessionId: "t3-preview-page",
+            }),
+          }),
+        );
+        expect(yield* Queue.take(capturing)).toBe(true);
+        screenshot.resolve({ data: "" });
+        expect(yield* Queue.take(capturing)).toBe(false);
+      }).pipe(Effect.provide(managerLayer()), Effect.scoped),
   );
 
   effectIt.effect("discards a screenshot that resolves after its guest is replaced", () =>

@@ -6,8 +6,6 @@ import {
   useRef,
   useState,
 } from "react";
-
-import { isElectron } from "~/env";
 import {
   type PreviewPanelInlineSize,
   usePreviewPanelInlineSize,
@@ -54,7 +52,6 @@ function PreviewPanelShellFrame(
     hostRef?: RefObject<HTMLDivElement | null>;
   },
 ) {
-  const useDragRegion = isElectron && props.mode !== "sheet" && props.mode !== "embedded";
   const isInline = props.mode === "inline";
   const collapsible = isInline && props.open !== undefined;
   const open = props.open ?? true;
@@ -131,7 +128,7 @@ function PreviewPanelShellFrame(
     <div
       ref={hostRef}
       className={cn(
-        "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-pane",
+        "relative flex h-full min-h-0 min-w-0 max-w-full flex-col self-stretch bg-background",
         isInline
           ? maximized
             ? // Maximizing meets the sidebar border or window edge; omit the duplicate border.

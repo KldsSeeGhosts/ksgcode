@@ -13,6 +13,7 @@ import { decodeAcpReplayTranscript, makeAcpReplayRuntime } from "./AcpAdapterV2.
 import * as NodePath from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as DocumentText from "../../provider/DocumentText.ts";
 import { assert, describe, it } from "@effect/vitest";
 import {
   CheckpointId,
@@ -104,6 +105,7 @@ const DROID_SETTINGS = Schema.decodeSync(AcpRegistrySettings)({ agentId: "factor
 const layerHost = TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer));
 
 const layerTest = Layer.mergeAll(
+  DocumentText.layer.pipe(Layer.provide(NodeServices.layer)),
   NodeServices.layer,
   IdAllocator.layer,
   McpProviderSessions.layer,
@@ -528,10 +530,10 @@ describe("AcpAdapterV2", () => {
         if (terminal?.type !== "turn.terminal") return;
         assert.equal(terminal.status, "completed");
         assert.equal(terminal.providerTurnId, providerTurnId);
-        assert.equal(
-          yield* runtime.getSteerDelivery?.(steer.message.messageId) ?? Effect.succeed(undefined),
-          "accepted",
-        );
+        const delivery = runtime.getSteerDelivery
+          ? yield* runtime.getSteerDelivery(steer.message.messageId)
+          : undefined;
+        assert.equal(delivery, "accepted");
         // A successful admission remains a success after the native prompt ended.
         yield* runtime.steerTurn(steer);
         const late = yield* runtime

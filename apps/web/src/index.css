@@ -226,6 +226,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      compositor updates discrete frames instead of every vsync. */
   --animate-status-pulse: status-pulse 2s infinite;
   --animate-status-ping: status-ping 2s infinite;
+  /* Stash pulses hold a highlight for 1.2s; the row then eases back over 200ms, the count snaps.
+     The row alternates two identical keyframes so each stash restarts it without a remount. */
+  --animate-stash-pulse-row: stash-pulse-row 1400ms;
+  --animate-stash-pulse-row-alt: stash-pulse-row-alt 1400ms;
+  --animate-stash-pulse-count: stash-pulse-count 1400ms step-start;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-warning-surface: var(--warning-surface);
@@ -271,7 +276,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --color-code-foreground: var(--code-foreground);
   --color-foreground: var(--contrast-foreground);
   --color-background: var(--background);
-  --color-pane: var(--pane-background, var(--background));
   --color-surface-raised: var(--surface-raised);
   --color-message: var(--message-surface);
   --color-message-foreground: var(--contrast-message-foreground);
@@ -309,6 +313,24 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     }
     100% {
       opacity: 1;
+    }
+  }
+  @keyframes stash-pulse-row {
+    from,
+    85.7% {
+      color: var(--color-foreground);
+    }
+  }
+  @keyframes stash-pulse-row-alt {
+    from,
+    85.7% {
+      color: var(--color-foreground);
+    }
+  }
+  @keyframes stash-pulse-count {
+    from,
+    85.7% {
+      color: var(--color-primary);
     }
   }
   @keyframes status-pulse {
@@ -508,7 +530,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 /* Stage-channel art needs a mask and pseudo-element gradient, so keep the
    behavior composable without tying it to the global components layer. */
 @utility sidebar-stage-backdrop {
-  --stage-fade: var(--glass-stage-fade, var(--sidebar-stage-fade, var(--app-chrome-background)));
+  --stage-fade: var(--sidebar-stage-fade, var(--app-chrome-background));
   mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 92%);
   -webkit-mask-image: linear-gradient(to bottom, black 0%, black 55%, transparent 92%);
 
@@ -1157,13 +1179,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   background-size: var(--surface-grain-size);
 }
 
-/* Sticky strips that must hide content scrolling beneath them. Opaque on a
-   solid window; a blurred smoked strip under native glass, where an opaque
-   bar would cut across the material. */
-@utility pane-sticky {
-  background-color: var(--background);
-}
-
 /* Suppress all transitions during theme changes */
 .no-transitions,
 .no-transitions *,
@@ -1336,6 +1351,52 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     --sidebar-border: var(--border);
     --sidebar-stage-fade: var(--card);
   }
+}
+
+/* New design: modified files get a muted blue so added and deleted files lead. Built from the
+   info token, which themes do not override, so it stays blue in every theme. */
+html[data-redesign] {
+  --diff-modified-icon: color-mix(in srgb, var(--info-foreground) 50%, var(--muted-foreground));
+}
+
+html.dark[data-redesign] {
+  /* On black a gray mix stays as bright as the blue, so dim with transparency instead. */
+  --diff-modified-icon: color-mix(in srgb, var(--info-foreground) 65%, transparent);
+  --diff-added-icon: var(--success-foreground);
+}
+
+/* Blue-orange already spends blue on additions. */
+html[data-redesign][data-diff-color-scheme="blue-orange"] {
+  --diff-modified-icon: var(--muted-foreground);
+  --diff-added-icon: initial;
+}
+
+html.dark[data-redesign][data-diff-color-scheme="blue-orange"] {
+  --diff-modified-icon: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
+}
+
+/* New design: sections in the provider detail pane sit flat in its card instead of nesting
+   cards inside it. Headings and row dividers still separate them. */
+[data-redesign] [data-provider-detail] [data-slot="settings-group"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* New design: a diff header's copy button shows on file hover or focus. */
+@media (hover: hover) {
+  [data-redesign] diffs-container:not(:hover) [data-diff-copy-path]:not(:focus-within) {
+    opacity: 0;
+  }
+}
+
+/* New design: the default dark canvas is true black, matching the sidebar. Raised surfaces
+   keep the tone they had over neutral-950 so cards, popovers, and the composer still lift. */
+html.dark[data-redesign]:not([data-theme-id]) {
+  --background: #000;
+  --surface-raised: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
+  --card: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
+  --popover: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
 }
 
 /* Theme files are expressed in app color roles and mapped to the existing
@@ -1810,179 +1871,6 @@ body {
   background-size: var(--surface-grain-size);
 }
 
-/* Smoked glass. The OS supplies only the blur (macOS under-window vibrancy,
-   Windows Mica or Acrylic); the page paints exactly one theme tint, on the
-   body. Every pane shares that single density, so the wallpaper reads as one
-   sheet behind the whole window. Panes stay transparent and separate with
-   hairlines and faint foreground washes: a second tint anywhere compounds into
-   a visibly denser patch. Only raised surfaces (composer, cards, menus) add
-   their own fill. Themes still own the hue through --background, --sidebar
-   and --card. */
-html[data-native-window-material] {
-  --glass-shell: color-mix(in srgb, var(--background) var(--window-shell-opacity), transparent);
-  --glass-sidebar-tint: color-mix(in srgb, var(--sidebar) 30%, transparent);
-  --glass-stroke: color-mix(in srgb, var(--foreground) 8%, transparent);
-  --glass-wash: color-mix(in srgb, var(--foreground) 4%, transparent);
-  --glass-wash-strong: color-mix(in srgb, var(--foreground) 7%, transparent);
-  --glass-rim: color-mix(in srgb, var(--foreground) 11%, transparent);
-  --glass-raised-surface: color-mix(in srgb, var(--card) 94%, var(--foreground));
-  --glass-raised-opacity: 52%;
-  --glass-raised-shadow: 0 20px 44px -24px rgb(0 0 0 / 55%), 0 2px 6px -2px rgb(0 0 0 / 22%);
-  --glass-sticky: color-mix(in srgb, var(--background) 62%, transparent);
-  /* bg-pane: the window canvas behind workspace panes. Unset elsewhere, so it
-     falls back to --background exactly where bg-background would. */
-  --pane-background: transparent;
-  /* Stage art already dissolves through its mask; fading it into an opaque
-     sidebar color would leave a solid band across the glass. */
-  --glass-stage-fade: transparent;
-  background-color: transparent !important;
-}
-
-html[data-native-window-material]:not(.dark) {
-  --glass-shell: color-mix(
-    in srgb,
-    var(--background) var(--window-shell-opacity-light),
-    transparent
-  );
-  --glass-sidebar-tint: color-mix(in srgb, var(--sidebar) 40%, transparent);
-  --glass-stroke: color-mix(in srgb, var(--foreground) 10%, transparent);
-  --glass-wash: rgb(255 255 255 / 28%);
-  --glass-wash-strong: rgb(255 255 255 / 52%);
-  --glass-rim: rgb(255 255 255 / 72%);
-  --glass-raised-surface: var(--card);
-  --glass-raised-opacity: 66%;
-  --glass-raised-shadow: 0 16px 36px -22px rgb(0 0 0 / 26%), 0 1px 3px rgb(0 0 0 / 6%);
-  --glass-sticky: color-mix(in srgb, var(--background) 74%, transparent);
-}
-
-html[data-native-window-material] body {
-  background-color: var(--glass-shell) !important;
-}
-
-/* The body already carries the tint and grain; repeating either here would
-   double them over this pane alone. */
-html[data-native-window-material]
-  :is([data-slot="sidebar-inset"], [data-chat-layout], [data-chat-header], [data-chat-reading]) {
-  background-color: transparent;
-  background-image: none;
-}
-
-html[data-native-window-material] .surface-grain {
-  background-image: none;
-}
-
-html[data-native-window-material] :is(.pane-sticky, [data-glass-sticky]) {
-  background-color: var(--glass-sticky);
-  background-image: none;
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
-}
-
-html[data-native-window-material] [data-app-sidebar] [data-slot="sidebar-inner"] {
-  background-color: var(--glass-sidebar-tint);
-  background-image: none;
-}
-
-html[data-native-window-material] [data-app-sidebar] [data-slot="sidebar-container"] {
-  border-color: var(--glass-stroke);
-}
-
-/* Theme row fills are opaque swatches tuned for a solid sidebar; over glass
-   they read as slabs. Lift rows with washes of the theme's own foreground. */
-html[data-native-window-material] [data-app-sidebar] {
-  --sidebar-row-hover: color-mix(in srgb, var(--foreground) 5%, transparent);
-  --sidebar-row-selected: color-mix(in srgb, var(--foreground) 7%, transparent);
-  --sidebar-row-active: color-mix(in srgb, var(--foreground) 8%, transparent);
-  --sidebar-control-surface: color-mix(in srgb, var(--foreground) 6%, transparent);
-}
-
-html[data-native-window-material]:not(.dark) [data-app-sidebar] {
-  --sidebar-row-hover: rgb(255 255 255 / 38%);
-  --sidebar-row-selected: rgb(255 255 255 / 52%);
-  --sidebar-row-active: rgb(255 255 255 / 68%);
-  --sidebar-control-surface: rgb(255 255 255 / 45%);
-}
-
-/* Environment art stays recognizable but melts into the material instead of
-   sitting on it like a sticker. */
-html[data-native-window-material] .sidebar-stage-backdrop {
-  opacity: 0.55;
-}
-
-/* The composer floats over scrolling text, so it keeps its own blur, lifted a
-   step above the shell by the theme's card color. */
-html[data-native-window-material] [data-slot="composer-shell"] {
-  --glass-opacity: var(--glass-raised-opacity);
-  --chat-composer-glass-surface: var(--glass-raised-surface);
-  --chat-composer-outline: var(--glass-stroke);
-  --chat-composer-highlight: var(--glass-rim);
-}
-
-/* Attached cards live inside the host; their input surface owns the visible rim. */
-html[data-native-window-material]
-  [data-slot="composer-host"]:not(:has([data-composer-banner-surface="attached"])),
-html[data-native-window-material]
-  [data-slot="composer-shell"]:has([data-composer-banner-surface="attached"])
-  [data-chat-composer-main-surface] {
-  box-shadow: var(--glass-raised-shadow);
-}
-
-html[data-window-material="liquid"] {
-  --glass-material-rim: color-mix(in srgb, var(--foreground) 16%, transparent);
-  --glass-material-edge: color-mix(in srgb, var(--foreground) 7%, transparent);
-}
-
-/* Light glass catches light on its top edge; a dark rim would read as a crease. */
-html[data-native-window-material][data-window-material="liquid"]:not(.dark) {
-  --glass-material-rim: rgb(255 255 255 / 80%);
-  --glass-material-edge: color-mix(in srgb, var(--foreground) 9%, transparent);
-}
-
-html[data-window-material="liquid"] [data-thread-row-card][aria-current="page"],
-html[data-native-window-material][data-window-material="liquid"]
-  [data-thread-item]
-  [aria-current="page"] {
-  background-image: linear-gradient(
-    color-mix(in srgb, var(--foreground) 7%, transparent),
-    color-mix(in srgb, var(--foreground) 2%, transparent)
-  );
-  box-shadow:
-    inset 0 1px var(--glass-material-rim),
-    inset 0 0 0 1px var(--glass-material-edge);
-}
-
-html[data-window-material="liquid"] [data-sidebar-thread-search] {
-  background-color: color-mix(in srgb, var(--sidebar-foreground) 5%, transparent);
-  box-shadow:
-    inset 0 1px var(--glass-material-edge),
-    inset 0 0 0 1px var(--glass-material-edge);
-}
-
-html[data-window-material="liquid"] [data-slot="composer-shell"] {
-  --chat-composer-outline: var(--glass-material-edge);
-  --chat-composer-highlight: var(--glass-material-rim);
-}
-
-html[data-window-material="liquid"]
-  [data-slot="composer-host"]:not(:has([data-composer-banner-surface="attached"])),
-html[data-window-material="liquid"]
-  [data-slot="composer-shell"]:has([data-composer-banner-surface="attached"])
-  [data-chat-composer-main-surface] {
-  box-shadow:
-    inset 0 1px var(--glass-material-rim),
-    inset 0 -1px var(--glass-material-edge),
-    var(--glass-raised-shadow, 0 18px 40px -20px rgb(0 0 0 / 45%));
-}
-
-html[data-window-material="liquid"] [data-workspace-panel-controls] {
-  height: 2rem;
-  border-radius: 0.625rem;
-  background: color-mix(in srgb, var(--popover) var(--glass-opacity), transparent);
-  box-shadow:
-    inset 0 1px var(--glass-material-rim),
-    inset 0 0 0 1px var(--glass-material-edge);
-}
-
 pre,
 code {
   font-family: var(--font-mono);
@@ -2409,6 +2297,15 @@ code {
   overflow-wrap: normal;
   word-break: normal;
   font-size: 0.75rem;
+}
+
+/* New design: tables sit one step under 15px prose instead of three. */
+[data-redesign] .chat-markdown table {
+  font-size: 0.875rem;
+}
+
+[data-redesign] .chat-markdown :is(td, th) {
+  text-wrap: pretty;
 }
 
 /* Top-aligned so wrapped rows share a first line, and the outer columns sit
