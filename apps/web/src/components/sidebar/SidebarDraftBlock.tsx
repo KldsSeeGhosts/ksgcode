@@ -87,7 +87,7 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
         aria-current={accessibility.current}
         data-testid="sidebar-draft-row"
         className={cn(
-          "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left text-sidebar-foreground transition-colors duration-150 motion-reduce:transition-none outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left text-sidebar-foreground outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           props.isActive ? "bg-sidebar-row-active" : draftSurfaceClassName,
         )}
         onClick={handleActivate}
@@ -95,15 +95,15 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
         onKeyDown={handleKeyDown}
       >
         <span className="sr-only">{preview}</span>
-        <div className="relative z-10 flex h-[3.25rem] flex-col justify-between px-(--sidebar-row-content-inset) py-1.5">
+        <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
           <div className="flex h-5 min-w-0 items-center gap-1.5">
             <SquarePenIcon aria-hidden className={draftPenClassName} />
-            <div
-              aria-hidden
-              className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90"
-            >
-              {preview}
-            </div>
+            {props.project ? (
+              <ProjectFavicon project={props.project} className="size-4 shrink-0" />
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
+              {props.projectDisplayName}
+            </span>
             <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end">
               <Tooltip>
                 <TooltipTrigger
@@ -122,11 +122,8 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
               </Tooltip>
             </span>
           </div>
-          <div className="flex h-4 min-w-0 items-center gap-1.5 text-2xs leading-4 text-secondary-label">
-            {props.project ? (
-              <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate">{props.projectDisplayName}</span>
+          <div aria-hidden className="mt-0.5 truncate text-sm font-medium text-foreground/90">
+            {preview}
           </div>
         </div>
       </div>

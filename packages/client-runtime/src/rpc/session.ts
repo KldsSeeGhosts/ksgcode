@@ -169,7 +169,14 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
     ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
     ...(options.usageLimitsCommand === true ? { usageLimitsCommand: true } : {}),
+    // Upstream mobile clients omit this flag; KSG always requests CPA-managed usage limits.
+    cpaManagerUsageLimits: true,
   };
+  // Config state merges the snapshots it fetches back in, so no subscriber needs them broadcast.
+  const onDemandSnapshots = (input: ServerConfigSubscriptionInput) => ({
+    ...input,
+    workspaceSnapshotsOnDemand: true,
+  });
 
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
     const via = connection.target._tag === "RelayConnectionTarget" ? "relay" : "direct";
@@ -247,10 +254,9 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
       reason: "remote-unavailable",
       detail: `${connection.label} config subscription ended.`,
     });
-    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig]({
-      ...serverConfigInput,
-      cpaManagerUsageLimits: true,
-    }).pipe(
+    const serverConfigSource = protocolClient[WS_METHODS.subscribeServerConfig](
+      onDemandSnapshots(serverConfigInput),
+    ).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
           const buffered = yield* Ref.modify(serverConfigState, (current) => {
@@ -388,10 +394,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
           Effect.as(
             Equal.equals(input, serverConfigInput)
               ? serverConfigEvents
-              : protocolClient[WS_METHODS.subscribeServerConfig]({
-                  ...input,
-                  cpaManagerUsageLimits: true,
-                }),
+              : protocolClient[WS_METHODS.subscribeServerConfig](onDemandSnapshots(input)),
           ),
         ),
       );

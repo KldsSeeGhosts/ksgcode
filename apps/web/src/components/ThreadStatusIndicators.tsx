@@ -10,7 +10,6 @@ import { pullRequestDetailToVcsStatus } from "@t3tools/client-runtime/state/pull
 import {
   resolveEnvironmentMachineKind,
   type EnvironmentId,
-  type PullRequestChecksState,
   type ScopedThreadRef,
   type ThreadLinkedPullRequest,
   type ThreadPullRequestLink,
@@ -57,10 +56,7 @@ import {
   PullRequestGlyph,
   type PullRequestGlyphIcon,
 } from "./pullRequest/pullRequestIcons";
-import {
-  pullRequestChecksStatePresentation,
-  resolvePullRequestState,
-} from "./pullRequest/pullRequestPresentation";
+import { resolvePullRequestState } from "./pullRequest/pullRequestPresentation";
 
 export interface PrStatusIndicator {
   label: string;
@@ -167,7 +163,6 @@ export interface ThreadPullRequestBadgePresentation {
   readonly toneClassName: string;
   readonly label: string;
   readonly text: string | number;
-  readonly checks?: PullRequestChecksState | undefined;
 }
 
 function resolveThreadPullRequestBadgePresentation({
@@ -175,13 +170,11 @@ function resolveThreadPullRequestBadgePresentation({
   number,
   url,
   status,
-  checksState,
 }: {
   readonly badge: ThreadPullRequestBadge | null;
   readonly number?: number | undefined;
   readonly url?: string | undefined;
   readonly status: PrStatusIndicator | null;
-  readonly checksState?: PullRequestChecksState | null | undefined;
 }): ThreadPullRequestBadgePresentation | null {
   const terminology = changeRequestTerminologyForUrl(url);
   if (badge?.kind === "stack") {
@@ -205,31 +198,12 @@ function resolveThreadPullRequestBadgePresentation({
       text: `+${badge.others + 1}`,
     };
   }
-  // Aggregate badges above stand for several PRs, so only a single PR shows its checks.
-  const checks = checksState ?? undefined;
   return {
     Icon: status?.Icon ?? PullRequestGlyph.pullRequest,
     toneClassName: status?.colorClass ?? "text-muted-foreground",
-    label:
-      checks === undefined
-        ? tooltip
-        : `${tooltip}. ${pullRequestChecksStatePresentation(checks).label}`,
+    label: tooltip,
     text: number,
-    checks,
   };
-}
-
-function PullRequestChecksDot({ state }: { state: PullRequestChecksState }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "ml-0.5 size-1.5 shrink-0 rounded-full",
-        pullRequestChecksStatePresentation(state).toneClassName,
-        state === "pending" ? "border border-current" : "bg-current",
-      )}
-    />
-  );
 }
 
 export function ThreadPullRequestBadgeControl({
@@ -239,7 +213,6 @@ export function ThreadPullRequestBadgeControl({
   number,
   url,
   status,
-  checksState,
   onOpenList,
   onOpenPullRequest,
 }: {
@@ -249,17 +222,10 @@ export function ThreadPullRequestBadgeControl({
   number?: number | undefined;
   url?: string | undefined;
   status: PrStatusIndicator | null;
-  checksState?: PullRequestChecksState | null | undefined;
   onOpenList: () => void;
   onOpenPullRequest: (event: MouseEvent<HTMLElement>, url?: string) => void;
 }) {
-  const presentation = resolveThreadPullRequestBadgePresentation({
-    badge,
-    number,
-    url,
-    status,
-    checksState,
-  });
+  const presentation = resolveThreadPullRequestBadgePresentation({ badge, number, url, status });
   if (presentation === null) return null;
   return (
     <PullRequestBadge
@@ -325,8 +291,7 @@ function PullRequestBadge({
           className={cn("contents font-normal text-xs tabular-nums", presentation.toneClassName)}
         >
           <presentation.Icon aria-hidden className="size-3 shrink-0" />
-          <span>{presentation.text}</span>
-          {presentation.checks ? <PullRequestChecksDot state={presentation.checks} /> : null}
+          <span className="redesign:text-secondary-label">{presentation.text}</span>
         </span>
       </TooltipTrigger>
       <TooltipPopup
@@ -835,7 +800,7 @@ export function ThreadWorktreeIndicator({
           />
         }
       >
-        <FolderGit2Icon className="size-3 text-muted-foreground/40" />
+        <FolderGit2Icon className="size-3.5 shrink-0 text-icon-muted" />
       </TooltipTrigger>
       <TooltipPopup side="top">{tooltip}</TooltipPopup>
     </Tooltip>

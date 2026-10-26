@@ -14,8 +14,7 @@ import {
 import { Check, Copy } from "lucide";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
-import { resolveServerBackedAppDisplayName } from "../branding.logic";
+import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
@@ -172,7 +171,6 @@ function RootRouteView() {
   if (pathname === "/pair" || pathname === "/connect" || pathname === "/connect-agent") {
     return (
       <>
-        <DocumentTitleSync />
         <BrowserChromeThemeSync key={pathname} />
         <Outlet />
       </>
@@ -183,7 +181,6 @@ function RootRouteView() {
   if (hostedPromptLinkLanding !== null) {
     return (
       <>
-        <DocumentTitleSync />
         <BrowserChromeThemeSync key={pathname} />
         {hostedPromptLinkLanding}
       </>
@@ -194,12 +191,8 @@ function RootRouteView() {
     return (
       <ToastProvider>
         <AnchoredToastProvider>
-          <DocumentTitleSync />
           <BrowserChromeThemeSync key={pathname} />
-          <ContrastAppearanceSync />
           <EnvironmentThemeSync />
-          <GlassAppearanceSync />
-          <FontAppearanceSync />
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
           <GuestShareDialogHost />
@@ -216,7 +209,6 @@ function RootRouteView() {
   if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
     return (
       <>
-        <DocumentTitleSync />
         <BrowserChromeThemeSync key={pathname} />
         <Outlet />
       </>
@@ -234,12 +226,8 @@ function RootRouteView() {
   return (
     <ToastProvider>
       <AnchoredToastProvider>
-        <DocumentTitleSync />
         <BrowserChromeThemeSync key={pathname} />
-        <ContrastAppearanceSync />
         <EnvironmentThemeSync />
-        <GlassAppearanceSync />
-        <FontAppearanceSync />
         <ProviderAuthCallbackCoordinator />
         <ChatGptWelcomeCoordinator />
         <FirstRunGate
@@ -368,23 +356,6 @@ function BrowserChromeThemeSync() {
       window.cancelAnimationFrame(frame);
     };
   }, []);
-  return null;
-}
-
-function DocumentTitleSync() {
-  const primaryServerVersion =
-    useAtomValue(primaryServerConfigAtom)?.environment.serverVersion ?? null;
-  const title = resolveServerBackedAppDisplayName({
-    baseName: APP_BASE_NAME,
-    fallbackDisplayName: APP_DISPLAY_NAME,
-    fallbackStageLabel: APP_STAGE_LABEL,
-    primaryServerVersion,
-  });
-
-  useEffect(() => {
-    document.title = title;
-  }, [title]);
-
   return null;
 }
 

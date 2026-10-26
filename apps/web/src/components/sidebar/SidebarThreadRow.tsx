@@ -33,6 +33,7 @@ import {
   CheckIcon,
   CircleAlertIcon,
   CircleCheckIcon,
+  CircleDashedIcon,
   CircleDotDashedIcon,
   ClockIcon,
   GitBranchIcon,
@@ -110,7 +111,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } f
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
-import { SidebarWorkingStatus } from "./SidebarWorkingStatus";
+import { useClientSettings } from "../../hooks/useSettings";
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -197,8 +198,7 @@ function SidebarProviderStack(props: {
       acpRegistryIconUrl={currentEntry.acpRegistryIconUrl}
       showBadge={showInstanceBadge}
       size="compact"
-      iconClassName="opacity-75"
-      badgeClassName="right-[-0.1875rem] bottom-[-0.1875rem] h-3 min-w-3 px-0.5 text-5xs"
+      iconClassName="opacity-60 redesign:opacity-50 redesign:grayscale"
     />
   );
   if (stack.length === 1) {
@@ -634,9 +634,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const currentLinkedPr = supportsMultiplePullRequests
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
-  // The server-synced rollup, so rows add no host requests; checks on a merged or closed PR are moot.
-  const prChecksState =
-    currentLinkedPr?.snapshot?.state === "open" ? currentLinkedPr.snapshot.checksState : null;
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
@@ -646,6 +643,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
+  const projectIconColors = useClientSettings((s) => s.sidebarProjectIconColors);
   const shouldRecede = shouldRecedeSidebarThread({
     status,
     isUnread,
@@ -658,8 +656,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       ? {
           label: thread.goal?.status === "active" ? "Goal" : "Working",
           icon: "working" as const,
-          // Only the label shimmers; the elapsed time stays still.
-          className: "text-info",
+          className: "text-info-foreground",
         }
       : status === "waiting"
         ? {
@@ -689,35 +686,28 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 ? {
                     label: "Limited",
                     icon: "failed" as const,
-                    className: "text-warning",
+                    className: "text-warning-foreground",
                   }
                 : status === "failed"
                   ? {
                       label: "Failed",
                       icon: "failed" as const,
-                      className: "text-error",
+                      className: "text-error-foreground",
                     }
                   : isWoke
                     ? {
                         label: "Woke",
                         icon: "woke" as const,
-                        className: "text-warning",
+                        className: "text-warning-foreground",
                       }
                     : isUnread
                       ? {
                           label: "Done",
                           icon: "done" as const,
-                          className: "text-success",
+                          className: "text-success-foreground",
                         }
                       : null;
   const isWokeStatus = topStatus?.icon === "woke";
-  // Only states that wait on the user get an edge, so a long list scans as one line.
-  // It borrows the status label's color, so the two always match.
-  const attentionRailClassName =
-    topStatus !== null &&
-    (status === "approval" || status === "input" || status === "failed" || status === "limited")
-      ? topStatus.className
-      : null;
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
@@ -902,22 +892,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     }
   };
 
-  // All sidebar rows share one flat resting surface; background fill is
-  // reserved for interaction (hover, selection, active route, or draft tint).
   const rowSurfaceClassName = cn(
-    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-lg text-left transition-colors duration-150 motion-reduce:transition-none outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-    variantAction === "unsettle" && "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
+    "group/sidebar-row relative w-full cursor-pointer overflow-hidden rounded-md text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    variantAction === "unsettle" &&
+      !props.isActive &&
+      "[&:not(:hover):not(:focus-within)_*]:text-secondary-label/70",
     props.isActive
-      ? "bg-sidebar-row-active text-sidebar-foreground"
+      ? "bg-sidebar-row-active text-sidebar-foreground light:shadow-xs light:ring-1 light:ring-inset light:ring-sidebar-border/70"
       : isSelected || props.sweepAction !== null
-        ? "bg-sidebar-row-selected text-sidebar-foreground"
+        ? "bg-sidebar-row-selected text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70"
         : hasUnsentDraft
           ? cn(draftSurfaceClassName, "text-sidebar-foreground")
           : shouldRecede
-            ? "bg-transparent text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+            ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
-    variant !== "card" &&
-      shouldRecede &&
+    shouldRecede &&
       status === "working" &&
       "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
     isFileDragOver && "ring-1 ring-inset ring-primary/70",
@@ -977,28 +966,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         onBlur={handleRenameBlur}
         onClick={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}
-        className="h-5 min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
+        className="min-w-0 flex-1 rounded-sm border border-input bg-card px-1 text-sm font-medium text-card-foreground outline-none focus:border-foreground"
       />
     ) : (
       <span
         aria-hidden
         className={cn(
-          "min-w-0 flex-1 text-start text-sm transition-[color,opacity] motion-reduce:transition-none",
-          variant === "card" || !shouldRecede ? "font-medium" : "font-normal",
+          "min-w-0 flex-1 text-start text-sm transition-opacity motion-reduce:transition-none",
+          shouldRecede ? "font-normal" : "font-medium",
           variant === "card"
             ? cn(
                 "truncate",
                 shouldRecede
-                  ? "text-sidebar-foreground/75 group-focus-within/sidebar-row:text-sidebar-foreground group-hover/sidebar-row:text-sidebar-foreground"
-                  : props.isActive ||
-                      isUnread ||
-                      isWoke ||
-                      status === "input" ||
-                      status === "request"
-                    ? "text-sidebar-foreground"
+                  ? "text-secondary-label redesign:text-foreground/75 redesign:group-hover/sidebar-row:text-foreground redesign:group-focus-visible/sidebar-row:text-foreground"
+                  : isUnread || isWoke || status === "input" || status === "request"
+                    ? "text-foreground"
                     : status === "failed"
-                      ? "text-sidebar-foreground/95"
-                      : "text-sidebar-foreground/90",
+                      ? "text-foreground/95"
+                      : "text-foreground/90 redesign:text-foreground",
               )
             : cn(
                 "truncate group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
@@ -1035,7 +1020,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         number={pr?.number ?? currentLinkedPr?.number}
         url={pr?.url ?? currentLinkedPr?.url}
         status={prStatus}
-        checksState={prChecksState}
         onOpenList={handlePrListClick}
         onOpenPullRequest={handlePrClick}
       />
@@ -1265,8 +1249,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
       className={cn(
-        // Matches the card content box; the py-0.5 padding is added on top.
-        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_52px]",
+        "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
         sortable?.isDragging && "relative z-20",
       )}
     >
@@ -1291,44 +1274,42 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           }
         >
           {accessibleTitle}
-          {attentionRailClassName ? (
-            <span
-              aria-hidden
-              className={cn(
-                "pointer-events-none absolute inset-y-2.5 left-0 w-[3px] rounded-r-full bg-current",
-                attentionRailClassName,
-              )}
-            />
-          ) : null}
-          <div className="relative z-10 flex h-[3.25rem] flex-col justify-between px-(--sidebar-row-content-inset) py-1.5">
+          <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
-              <span
-                aria-hidden
-                className={cn(
-                  "pointer-events-none inline-flex shrink-0 items-center transition-opacity",
-                  shouldRecede &&
-                    "opacity-60 group-focus-within/sidebar-row:opacity-95 group-hover/sidebar-row:opacity-95",
-                )}
-              >
-                <SidebarProviderStack
-                  thread={thread}
-                  providerEntryByInstanceId={props.providerEntryByInstanceId}
-                />
-              </span>
               {draftIndicator}
-              {title}
-              {isRegeneratingTitle ? (
-                <span role="status" className="sr-only">
-                  Regenerating title
-                </span>
+              {props.project ? (
+                <ProjectFavicon
+                  project={props.project}
+                  className={cn(
+                    "size-4 shrink-0",
+                    // Repeated brand colors outshout titles; color returns on the row in focus.
+                    !props.isActive &&
+                      !projectIconColors &&
+                      "redesign:opacity-60 redesign:grayscale redesign:group-focus-visible/sidebar-row:opacity-100 redesign:group-focus-visible/sidebar-row:grayscale-0 redesign:group-any-hover/sidebar-row:opacity-100 redesign:group-any-hover/sidebar-row:grayscale-0",
+                  )}
+                />
               ) : null}
+              {/* Left of the status slot, the pin would slide when hover swaps the
+                label for the wider row controls. */}
               {pinIndicator}
+              {props.projectDisplayName ? (
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate text-secondary-label text-xs",
+                    shouldRecede ? "font-normal" : "font-medium redesign:font-normal",
+                  )}
+                >
+                  {props.projectDisplayName}
+                </span>
+              ) : (
+                <span className="flex-1" />
+              )}
               {sortable?.isDragging ? (
                 dragDestination
               ) : (
                 <span
                   className={cn(
-                    "group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-2xs",
+                    "group/sidebar-status-slot relative ml-auto flex h-5 min-w-8 shrink-0 items-stretch justify-end text-xs",
                     props.sweepAction !== null && "hidden",
                   )}
                 >
@@ -1337,13 +1318,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       isWokeStatus
                         ? "pointer-events-auto"
                         : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-any-hover/sidebar-row:absolute group-any-hover/sidebar-row:right-0 group-any-hover/sidebar-row:opacity-0",
-                      "flex items-center self-center justify-self-end tabular-nums transition-[color,opacity]",
-                      shouldRecede
-                        ? "text-sidebar-muted-foreground/60 group-focus-within/sidebar-row:text-secondary-label group-hover/sidebar-row:text-secondary-label"
-                        : "text-secondary-label",
-                      shouldRecede &&
-                        status === "working" &&
-                        "opacity-75 group-focus-within/sidebar-row:opacity-100 group-hover/sidebar-row:opacity-100 motion-reduce:transition-none",
+                      "flex items-center self-center justify-self-end tabular-nums text-secondary-label",
                       snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
                     )}
                   >
@@ -1375,7 +1350,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             topStatus.className,
                           )}
                         >
-                          {topStatus.icon === "waiting" ? (
+                          {topStatus.icon === "working" ? (
+                            <CircleDashedIcon aria-hidden className="size-4 shrink-0" />
+                          ) : topStatus.icon === "waiting" ? (
                             <CircleDotDashedIcon aria-hidden className="size-4 shrink-0" />
                           ) : topStatus.icon === "input" ? (
                             <MessageCircleQuestionIcon aria-hidden className="size-4 shrink-0" />
@@ -1391,11 +1368,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           {/* Not a live region: a collapsed sidebar is inert, so
                             BackgroundThreadAnnouncer and the open thread's
                             timeline speak status changes instead. */}
-                          {topStatus.icon === "working" ? (
-                            <SidebarWorkingStatus label={topStatus.label} />
-                          ) : (
-                            topStatus.label
-                          )}
+                          {topStatus.label}
                           {status === "working" ? (
                             <span aria-hidden>
                               <WorkingDuration startedAt={resolveWorkingStartedAt(thread)} />
@@ -1416,7 +1389,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                       className={cn(
                         // Mouse clicks leave Settle focused; focus-within would pin controls over
                         // the status label after the pointer leaves. Use focus-visible instead.
-                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
+                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-any-hover/sidebar-row:pointer-events-auto group-any-hover/sidebar-row:static group-any-hover/sidebar-row:opacity-100",
                         snoozeMenuOpen && "pointer-events-auto static opacity-100",
                       )}
                     >
@@ -1470,69 +1443,36 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {props.sweepAction !== null ? dragDestination : null}
             </div>
-            <div className="flex h-4 min-w-0 items-center gap-1.5 text-2xs leading-4 text-secondary-label">
-              {props.project ? (
-                <span
-                  className={cn(
-                    "inline-flex shrink-0 items-center transition-opacity",
-                    shouldRecede &&
-                      "opacity-60 group-focus-within/sidebar-row:opacity-90 group-hover/sidebar-row:opacity-90",
-                  )}
-                >
-                  <ProjectFavicon project={props.project} className="size-3.5 shrink-0" />
+            <div className="mt-1 flex min-w-0">
+              {title}
+              {isRegeneratingTitle ? (
+                <span role="status" className="sr-only">
+                  Regenerating title
                 </span>
               ) : null}
-              {props.projectDisplayName ? (
-                <span
-                  className={cn(
-                    "truncate transition-colors",
-                    thread.branch || showsScratchMachine
-                      ? "max-w-[45%] shrink-0"
-                      : "min-w-0 flex-1",
-                    shouldRecede
-                      ? "text-sidebar-muted-foreground/65 group-focus-within/sidebar-row:text-secondary-label group-hover/sidebar-row:text-secondary-label"
-                      : "text-secondary-label",
-                  )}
-                >
-                  {props.projectDisplayName}
-                </span>
-              ) : null}
-              {/* Always the branch. The plan step used to take this slot while
-                  working, but it truncated to a half-sentence and dropped the
-                  branch, so the row lost its most stable identifier. */}
+            </div>
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
               {thread.branch ? (
-                <span
-                  className={cn(
-                    "inline-flex min-w-0 flex-1 items-center gap-1 transition-colors",
-                    shouldRecede
-                      ? "text-sidebar-muted-foreground/45 group-focus-within/sidebar-row:text-sidebar-muted-foreground/65 group-hover/sidebar-row:text-sidebar-muted-foreground/65"
-                      : "text-sidebar-muted-foreground/65",
-                  )}
-                >
+                <>
                   <ThreadWorktreeIndicator thread={thread} />
-                  <span className="flex min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-1 text-muted-foreground/40 redesign:text-inherit">
                     <MiddleTruncate value={thread.branch} showTitle={false} />
                   </span>
-                </span>
+                </>
               ) : showsScratchMachine ? (
-                <span
-                  className={cn(
-                    "inline-flex min-w-0 flex-1 items-center gap-1 transition-colors",
-                    shouldRecede
-                      ? "text-sidebar-muted-foreground/40 group-focus-within/sidebar-row:text-sidebar-muted-foreground/60 group-hover/sidebar-row:text-sidebar-muted-foreground/60"
-                      : "text-sidebar-muted-foreground/55",
-                  )}
-                >
+                <>
                   <EnvironmentMachineIcon
                     aria-hidden
                     kind={props.environmentMachine}
-                    className="size-3 shrink-0"
+                    className="size-3 shrink-0 text-muted-foreground/40 redesign:text-inherit"
                   />
-                  <span className="min-w-0 flex-1 truncate">{props.scratchMachineLabel}</span>
-                </span>
-              ) : !props.projectDisplayName ? (
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground/40 redesign:text-inherit">
+                    {props.scratchMachineLabel}
+                  </span>
+                </>
+              ) : (
                 <span className="flex-1" />
-              ) : null}
+              )}
               {terminalStatusIcon}
               {prBadge}
               {diff ? (
@@ -1545,25 +1485,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   </span>
                 </span>
               ) : null}
-              {isRemote && !showsScratchMachine ? (
-                <span
-                  aria-hidden
-                  className={cn(
-                    "pointer-events-none ml-auto inline-flex max-w-[40%] shrink-0 items-center gap-1 text-sidebar-muted-foreground/70 transition-opacity",
-                    shouldRecede &&
-                      "opacity-55 group-focus-within/sidebar-row:opacity-95 group-hover/sidebar-row:opacity-95",
-                  )}
-                >
-                  <EnvironmentMachineIcon
-                    aria-hidden
-                    kind={props.environmentMachine}
-                    className="size-3 shrink-0"
-                  />
-                  {props.environmentLabel ? (
-                    <span className="truncate">{props.environmentLabel}</span>
-                  ) : null}
-                </span>
-              ) : null}
+              <span
+                aria-hidden
+                className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
+              >
+                {isRemote && !showsScratchMachine ? (
+                  <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
+                    <EnvironmentMachineIcon
+                      aria-hidden
+                      kind={props.environmentMachine}
+                      className="size-3.5"
+                    />
+                  </span>
+                ) : null}
+                <SidebarProviderStack
+                  thread={thread}
+                  providerEntryByInstanceId={props.providerEntryByInstanceId}
+                />
+              </span>
             </div>
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
