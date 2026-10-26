@@ -346,7 +346,10 @@ function Section({
       render={<section aria-label={title} />}
       data-pull-request-summary-section
     >
-      <div ref={headingRef} className="sticky top-0 z-10 flex w-full items-center pane-sticky pr-4">
+      <div
+        ref={headingRef}
+        className="sticky top-0 z-10 flex w-full items-center bg-background pr-4"
+      >
         <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-1.5 px-4 py-3 text-left text-xs font-medium text-muted-foreground hover:text-foreground">
           <span>{title}</span>
           <ChevronRightIcon

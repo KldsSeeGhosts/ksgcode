@@ -3,7 +3,6 @@ import { createBrowserHistory, createHashHistory } from "@tanstack/react-router"
 
 import { applyAppearanceContrast } from "./appearanceContrast";
 import { applyAppearanceFontVariables } from "./appearanceFonts";
-import { applyAppearanceMaterial } from "./appearanceMaterial";
 import { APP_BASE_NAME, APP_DISPLAY_NAME, APP_STAGE_LABEL } from "./branding";
 import { resolveServerBackedAppDisplayName } from "./branding.logic";
 import { isElectron } from "./env";
@@ -21,30 +20,6 @@ import { primaryServerConfigAtom } from "./state/server";
 function startClientAppearance(): void {
   const root = document.documentElement;
   let applied: ClientSettings | null = null;
-
-  // The desktop shell owns the native material; the OS or browser owns reduced transparency.
-  let nativeMaterial = window.desktopBridge?.getWindowMaterial?.() ?? "solid";
-  const reducedTransparency = [
-    window.matchMedia("(prefers-reduced-transparency: reduce)"),
-    window.matchMedia("(forced-colors: active)"),
-  ];
-  const applyMaterial = () => {
-    const settings = getClientSettings();
-    applyAppearanceMaterial(root, {
-      material: settings.windowMaterial,
-      opacity: settings.glassOpacity,
-      reducedTransparency: reducedTransparency.some((query) => query.matches),
-      supportsBackdropFilter: CSS.supports("backdrop-filter", "blur(1px)"),
-      desktop: isElectron,
-      nativeMaterial,
-    });
-  };
-  for (const query of reducedTransparency) query.addEventListener("change", applyMaterial);
-  window.desktopBridge?.onWindowMaterialChange?.((material) => {
-    nativeMaterial = material;
-    applyMaterial();
-  });
-
   const apply = () => {
     const settings = getClientSettings();
     const previous = applied;
@@ -61,11 +36,13 @@ function startClientAppearance(): void {
     if (previous?.appearanceContrast !== settings.appearanceContrast) {
       applyAppearanceContrast(root, settings.appearanceContrast);
     }
-    if (
-      previous?.glassOpacity !== settings.glassOpacity ||
-      previous.windowMaterial !== settings.windowMaterial
-    ) {
-      applyMaterial();
+    if (previous?.glassOpacity !== settings.glassOpacity) {
+      root.style.setProperty("--glass-opacity", `${settings.glassOpacity}%`);
+      if (settings.glassOpacity === 100) {
+        root.style.setProperty("--glass-blur", "0px");
+      } else {
+        root.style.removeProperty("--glass-blur");
+      }
     }
     if (
       previous?.fontFamilySans !== settings.fontFamilySans ||

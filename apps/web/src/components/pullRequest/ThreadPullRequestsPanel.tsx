@@ -286,7 +286,7 @@ function LinkRowImpl({
       ) : null}
       <span
         className={cn(
-          "absolute right-0 bottom-0.5 flex items-center rounded-r-md pane-sticky pr-1 pl-5",
+          "absolute right-0 bottom-0.5 flex items-center rounded-r-md bg-background pr-1 pl-5",
           "[mask-image:linear-gradient(to_right,transparent,black_1rem)]",
           // Hidden controls would intercept link taps on touch screens.
           "pointer-events-none opacity-0 group-hover/pr-row:pointer-events-auto group-hover/pr-row:opacity-100",

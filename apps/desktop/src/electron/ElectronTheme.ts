@@ -23,7 +23,6 @@ export class ElectronTheme extends Context.Service<
   ElectronTheme,
   {
     readonly shouldUseDarkColors: Effect.Effect<boolean>;
-    readonly shouldUseOpaqueBackgrounds: Effect.Effect<boolean>;
     readonly setSource: (theme: DesktopTheme) => Effect.Effect<void, ElectronThemeSetSourceError>;
     readonly onUpdated: (listener: () => void) => Effect.Effect<void, never, Scope.Scope>;
   }
@@ -32,11 +31,6 @@ export class ElectronTheme extends Context.Service<
 /** @public */
 export const make = ElectronTheme.of({
   shouldUseDarkColors: Effect.sync(() => Electron.nativeTheme.shouldUseDarkColors),
-  shouldUseOpaqueBackgrounds: Effect.sync(
-    () =>
-      Electron.nativeTheme.prefersReducedTransparency ||
-      Electron.nativeTheme.shouldUseHighContrastColors,
-  ),
   setSource: (theme) =>
     Effect.try({
       try: () => {

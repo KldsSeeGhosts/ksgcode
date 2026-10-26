@@ -186,7 +186,7 @@ function FirstRunRecovery({
 }) {
   const settingsReadFailed = reason === "settings";
   return (
-    <main className="flex h-dvh min-h-0 items-center justify-center bg-pane px-6 text-foreground">
+    <main className="flex h-dvh min-h-0 items-center justify-center bg-background px-6 text-foreground">
       <div className="flex max-w-sm flex-col items-center text-center">
         <h1 className="text-lg font-semibold">
           {settingsReadFailed ? "Could not read settings" : "Still connecting"}

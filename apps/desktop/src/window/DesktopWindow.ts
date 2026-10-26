@@ -1,5 +1,3 @@
-// @effect-diagnostics nodeBuiltinImport:off -- Native backdrop support depends on the desktop OS build.
-import * as NodeOS from "node:os";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -7,16 +5,10 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as Schema from "effect/Schema";
-import * as Semaphore from "effect/Semaphore";
 
 import * as Electron from "electron";
 
-import {
-  type DesktopSnapShotEvent,
-  type WindowMaterial,
-  DEFAULT_CLIENT_SETTINGS,
-} from "@t3tools/contracts";
+import { type DesktopSnapShotEvent, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -33,7 +25,6 @@ import {
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
-  WINDOW_MATERIAL_CHANNEL,
 } from "../ipc/channels.ts";
 import { PASSKEY_BRIDGE_ARGUMENT } from "../preview/GuestProtocol.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -44,9 +35,6 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
-import { setMacosWindowBlur } from "./MacosWindowBlur.ts";
-import { resolveWindowMaterial, supportsWindowMaterial } from "./windowMaterial.ts";
-import { loadWindowsGlass } from "./WindowsGlass.ts";
 
 const TITLEBAR_HEIGHT = 40;
 // Match --workspace-topbar-height in apps/web/src/index.css; native macOS buttons stay 14 points at any zoom.
@@ -64,8 +52,6 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
   });
 }
 
-// Points of WindowServer blur behind macOS glass; matches Acrylic's softness.
-const MACOS_GLASS_BLUR_RADIUS = 24;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
@@ -102,11 +88,6 @@ export type DesktopWindowError =
 export type MainWindowZoomDirection = "in" | "out" | "reset";
 export type MainWindowContentsCommand = "reload" | "forceReload" | "toggleDevTools";
 
-class DesktopWindowMaterialError extends Schema.TaggedError<DesktopWindowMaterialError>()(
-  "DesktopWindowMaterialError",
-  { cause: Schema.Defect() },
-) {}
-
 export class DesktopWindow extends Context.Service<
   DesktopWindow,
   {
@@ -131,7 +112,6 @@ export class DesktopWindow extends Context.Service<
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly runMainContentsCommand: (command: MainWindowContentsCommand) => Effect.Effect<void>;
     readonly syncAppearance: Effect.Effect<void>;
-    readonly getWindowMaterial: Effect.Effect<WindowMaterial>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -198,7 +178,7 @@ function buildConnectingSplashDataUrl(shouldUseDarkColors: boolean): string {
   const label = shouldUseDarkColors ? "#9ca3af" : "#6b7280";
   const accent = shouldUseDarkColors ? "#f8fafc" : "#1f2937";
   const track = shouldUseDarkColors ? "rgba(248,250,252,0.18)" : "rgba(31,41,55,0.18)";
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSLâ€¦</div></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;height:100%}body{background:${background};color:${label};font-family:system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;-webkit-user-select:none;user-select:none;-webkit-app-region:drag}.spinner{width:26px;height:26px;border:3px solid ${track};border-top-color:${accent};border-radius:50%;animation:spin .8s linear infinite}.label{font-size:13px}@keyframes spin{to{transform:rotate(360deg)}}</style></head><body><div class="spinner"></div><div class="label">Connecting to WSL…</div></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
@@ -271,16 +251,13 @@ function syncWindowAppearance(
   window: Electron.BrowserWindow,
   shouldUseDarkColors: boolean,
   platform: NodeJS.Platform,
-  translucent = false,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     if (window.isDestroyed()) {
       return;
     }
 
-    window.setBackgroundColor(
-      translucent ? "#00000000" : getInitialWindowBackgroundColor(shouldUseDarkColors),
-    );
+    window.setBackgroundColor(getInitialWindowBackgroundColor(shouldUseDarkColors));
     const { titleBarOverlay } = getWindowTitleBarOptions(shouldUseDarkColors, platform);
     if (typeof titleBarOverlay === "object") {
       window.setTitleBarOverlay(titleBarOverlay);
@@ -320,108 +297,6 @@ export const make = Effect.gen(function* () {
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const electronApp = yield* ElectronApp.ElectronApp;
   const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
-  const osRelease = yield* Effect.sync(() => NodeOS.release());
-  const nativeMaterialSupported = supportsWindowMaterial(environment.platform, osRelease);
-  const windowMaterialRef = yield* Ref.make<WindowMaterial>("solid");
-  const appearanceGate = yield* Semaphore.make(1);
-  const syncWindowsGlassAppearance = Effect.fn("desktop.window.syncWindowsGlassAppearance")(
-    (window: Electron.BrowserWindow, active: boolean) =>
-      Effect.tryPromise(async () => {
-        const setActiveAppearance = await loadWindowsGlass();
-        if (!window.isDestroyed()) {
-          setActiveAppearance(window.getNativeWindowHandle(), active);
-        }
-      }).pipe(
-        Effect.catch((cause) =>
-          logWindowWarning("could not keep Windows glass active while unfocused", { cause }),
-        ),
-      ),
-  );
-  const syncMainWindowMaterial = Effect.fn("desktop.window.syncMainWindowMaterial")(function* (
-    window: Electron.BrowserWindow,
-    shouldUseDarkColors: boolean,
-    force = false,
-  ) {
-    if (window.isDestroyed()) return;
-    const persisted = yield* clientSettings.get.pipe(
-      Effect.catch((cause) =>
-        logWindowWarning("could not read window material; using solid appearance", { cause }).pipe(
-          Effect.as(Option.none()),
-        ),
-      ),
-    );
-    const settings = Option.getOrElse(persisted, () => DEFAULT_CLIENT_SETTINGS);
-    const material = resolveWindowMaterial(
-      settings,
-      environment.platform,
-      osRelease,
-      yield* electronTheme.shouldUseOpaqueBackgrounds,
-    );
-    const previous = yield* Ref.get(windowMaterialRef);
-    const nativeChanged =
-      force ||
-      (environment.platform === "win32"
-        ? previous !== material
-        : (previous === "solid") !== (material === "solid"));
-    const applyNativeMaterial = !nativeChanged
-      ? Effect.void
-      : environment.platform === "darwin"
-        ? Effect.tryPromise({
-            try: () =>
-              setMacosWindowBlur(window, material === "solid" ? 0 : MACOS_GLASS_BLUR_RADIUS),
-            catch: (cause) => new DesktopWindowMaterialError({ cause }),
-          })
-        : environment.platform === "win32" && nativeMaterialSupported
-          ? Effect.try({
-              try: () =>
-                window.setBackgroundMaterial(
-                  material === "solid" ? "none" : material === "liquid" ? "acrylic" : "mica",
-                ),
-              catch: (cause) => new DesktopWindowMaterialError({ cause }),
-            })
-          : Effect.void;
-    const applied = yield* applyNativeMaterial.pipe(
-      Effect.andThen(
-        Effect.try({
-          try: () => {
-            window.setBackgroundColor(
-              material === "solid"
-                ? getInitialWindowBackgroundColor(shouldUseDarkColors)
-                : "#00000000",
-            );
-            return material;
-          },
-          catch: (cause) => new DesktopWindowMaterialError({ cause }),
-        }),
-      ),
-      Effect.catch((cause) =>
-        logWindowWarning("native window material unavailable; using solid appearance", {
-          cause,
-        }).pipe(
-          Effect.andThen(
-            Effect.sync(() => {
-              if (!window.isDestroyed()) {
-                window.setBackgroundColor(getInitialWindowBackgroundColor(shouldUseDarkColors));
-              }
-            }),
-          ),
-          Effect.as("solid" as const),
-        ),
-      ),
-    );
-    if (
-      nativeChanged &&
-      environment.platform === "win32" &&
-      nativeMaterialSupported &&
-      (previous !== "solid" || applied !== "solid")
-    ) {
-      yield* syncWindowsGlassAppearance(window, applied !== "solid" || window.isFocused());
-    }
-    yield* Ref.set(windowMaterialRef, applied);
-    if (!force && previous !== applied && !window.isDestroyed()) {
-      window.webContents.send(WINDOW_MATERIAL_CHANNEL, applied);
-    }
-  });
   const backendReadyRef = yield* Ref.make(false);
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
@@ -502,12 +377,7 @@ export const make = Effect.gen(function* () {
       minHeight: 620,
       show: false,
       autoHideMenuBar: true,
-      // Electron selects the compositor's translucent backing at construction
-      // and cannot switch it later; a backing chosen opaque leaves stale pixels
-      // in glass regions. Solid is painted with an opaque background instead.
-      ...(environment.platform === "darwin"
-        ? { disableAutoHideCursor: true, transparent: true }
-        : {}),
+      ...(environment.platform === "darwin" ? { disableAutoHideCursor: true } : {}),
       backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
       ...iconOption,
       title: environment.displayName,
@@ -527,18 +397,6 @@ export const make = Effect.gen(function* () {
     if (yield* Ref.get(desktopState.quitting)) {
       yield* electronWindow.destroyAll;
       return Option.none();
-    }
-    yield* syncMainWindowMaterial(window, shouldUseDarkColors, true);
-    if (environment.platform === "win32" && nativeMaterialSupported) {
-      window.on("blur", () => {
-        runFork(
-          Ref.get(windowMaterialRef).pipe(
-            Effect.flatMap((material) =>
-              material === "solid" ? Effect.void : syncWindowsGlassAppearance(window, true),
-            ),
-          ),
-        );
-      });
     }
 
     yield* rendererHistory.register(window.webContents, { surface: "main" });
@@ -1162,25 +1020,10 @@ export const make = Effect.gen(function* () {
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
-      const main = yield* electronWindow.main;
-      const material = yield* Ref.get(windowMaterialRef);
       yield* electronWindow.syncAllAppearance((window) =>
-        syncWindowAppearance(
-          window,
-          shouldUseDarkColors,
-          environment.platform,
-          Option.isSome(main) && main.value === window && material !== "solid",
-        ),
+        syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
       );
-      if (Option.isSome(main)) {
-        yield* syncMainWindowMaterial(main.value, shouldUseDarkColors);
-      }
-    }).pipe(
-      // Native theme events and settings writes can overlap their asynchronous settings reads.
-      appearanceGate.withPermit,
-      Effect.withSpan("desktop.window.syncAppearance"),
-    ),
-    getWindowMaterial: Ref.get(windowMaterialRef),
+    }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
   });
 });
 
