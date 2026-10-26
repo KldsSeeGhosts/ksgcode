@@ -169,12 +169,12 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
     ...(options.environmentThemes === true ? { environmentThemes: true } : {}),
     ...(options.usageLimitSources === true ? { usageLimitSources: true } : {}),
     ...(options.usageLimitsCommand === true ? { usageLimitsCommand: true } : {}),
-    // Upstream mobile clients omit this flag; KSG always requests CPA-managed usage limits.
-    cpaManagerUsageLimits: true,
   };
   // Config state merges the snapshots it fetches back in, so no subscriber needs them broadcast.
+  // Upstream mobile clients omit the CPA flag; KSG always requests CPA-managed usage limits.
   const onDemandSnapshots = (input: ServerConfigSubscriptionInput) => ({
     ...input,
+    cpaManagerUsageLimits: true,
     workspaceSnapshotsOnDemand: true,
   });
 
