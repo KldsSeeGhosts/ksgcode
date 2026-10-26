@@ -2748,7 +2748,7 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
-// KSG Code fork: one product name for every channel (see AGENTS.md, KSG fork procedures).
+// KSG Code fork: one product name for every channel (see docs/operations/ksg-fork.md).
 export function resolveDesktopProductName(_version: string): string {
   return "KSG Code";
 }
