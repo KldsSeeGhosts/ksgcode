@@ -674,14 +674,14 @@ export const makeAcpAgentDriver = <Settings>(
       Effect.flatMap(withLiveRuntimeState),
     );
     const checkProvider = checkReadiness.pipe(
-      Effect.flatMap((provider) =>
-        definition.maintenance
-          ? checkAcpAgentCliVersion({
-              snapshot: provider,
-              commandPath: effectiveConfig.commandPath,
-              environment: processEnvironment,
-            }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
-          : Effect.succeed(provider),
+      Effect.filterOrElse(
+        () => !definition.maintenance,
+        (provider) =>
+          checkAcpAgentCliVersion({
+            snapshot: provider,
+            commandPath: effectiveConfig.commandPath,
+            environment: processEnvironment,
+          }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner)),
       ),
     );
     const enrichProvider = checkAcpRegistryProviderStatus(

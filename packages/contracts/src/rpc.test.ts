@@ -5,6 +5,8 @@ import * as Schema from "effect/Schema";
 import { ORCHESTRATION_V2_WS_METHODS } from "./orchestrationV2.ts";
 import { WS_METHODS, WsRpcGroup, WsSubscribeServerConfigRpc } from "./rpc.ts";
 
+const decodeServerConfigPayload = Schema.decodeSync(WsSubscribeServerConfigRpc.payloadSchema);
+
 describe("subscribeServerConfig payload compatibility", () => {
   it("lets older upstream servers ignore the CPA Manager capability", () => {
     const oldServerPayload = Schema.Struct({});
@@ -16,7 +18,7 @@ describe("subscribeServerConfig payload compatibility", () => {
   });
 
   it("is carried by a server that declares it", () => {
-    const decoded = Schema.decodeSync(WsSubscribeServerConfigRpc.payloadSchema)({
+    const decoded = decodeServerConfigPayload({
       environmentThemes: true,
       cpaManagerUsageLimits: true,
     });
