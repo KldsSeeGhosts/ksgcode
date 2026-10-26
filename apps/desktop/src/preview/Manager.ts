@@ -98,11 +98,11 @@ export interface PreviewTabState {
   canGoForward: boolean;
   zoomFactor: number;
   pictureInPicture: boolean;
-  capturing?: boolean;
   colorScheme: DesktopPreviewColorScheme;
   audioMuted: boolean;
   audible: boolean;
   controller: "human" | "agent" | "none";
+  capturing: boolean;
   favicon?: DesktopPreviewFavicon;
   serverTab?: { readonly threadId: string; readonly tabId: string };
   updatedAt: string;
@@ -372,7 +372,7 @@ interface ManagedListeners {
   readonly webContents: Electron.WebContents;
 }
 
-type FrameCaptureConsumer = "picture-in-picture" | "recording" | "stream";
+type FrameCaptureConsumer = "picture-in-picture" | "recording";
 
 interface FrameCaptureSession {
   readonly recordingInputOptions?: RecordingInputOptions;
@@ -1653,6 +1653,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
           audioMuted: false,
           audible: false,
           controller: "none",
+          capturing: false,
           updatedAt,
         };
         return [
@@ -1686,10 +1687,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         cancelPickElement(tabId),
         closePictureInPicture(tabId),
         stopFrameCapture(tabId, "recording"),
-        stopFrameCapture(tabId, "stream"),
       ],
       {
-        concurrency: 4,
+        concurrency: 3,
         discard: true,
       },
     );
@@ -1727,6 +1727,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       audioMuted: false,
       audible: false,
       controller: "none",
+      capturing: false,
       updatedAt,
     };
     yield* emit(tabId, closed);
@@ -1948,7 +1949,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         audioMuted: current?.audioMuted ?? false,
         audible: current?.audible ?? false,
         controller: current?.controller ?? "none",
+        capturing: current?.capturing ?? false,
         ...(current?.favicon ? { favicon: current.favicon } : {}),
+        ...(current?.serverTab ? { serverTab: current.serverTab } : {}),
         updatedAt,
       };
       return [
@@ -2301,7 +2304,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
         return;
       }
       if (afterAttach.serverTab) {
-        yield* listenForServerBrowser;
+        yield* listenToBrowserHost;
         browserHost.attach(afterAttach.serverTab, { webContents: wc, debugger: control.debugger });
       }
       if (afterAttach.colorScheme !== "system") {
@@ -3241,41 +3244,31 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       { discard: true },
     );
   });
-  const setServerCaptureActive = Effect.fn("PreviewManager.setServerCaptureActive")(
-    function* ({
-      key,
-      active,
-    }: {
-      readonly key: DesktopBrowserHost.DesktopBrowserTabKey;
+  const updateServerTabCapturing = Effect.fn("PreviewManager.updateServerTabCapturing")(
+    function* (painting: {
+      readonly key: { readonly threadId: string; readonly tabId: string };
       readonly active: boolean;
     }) {
       const tab = [...(yield* SynchronizedRef.get(tabsRef)).values()].find(
         (candidate) =>
-          candidate.serverTab?.threadId === key.threadId && candidate.serverTab.tabId === key.tabId,
+          candidate.serverTab?.threadId === painting.key.threadId &&
+          candidate.serverTab.tabId === painting.key.tabId,
       );
-      if (!tab) return;
-      if (active) yield* startFrameCapture(tab.tabId, "stream");
-      else yield* stopFrameCapture(tab.tabId, "stream");
-      yield* update(tab.tabId, { capturing: active });
+      if (tab && tab.capturing !== painting.active) {
+        yield* update(tab.tabId, { capturing: painting.active });
+      }
     },
-    Effect.catch((error) =>
-      Effect.logWarning("Failed to update server preview capture activity.", { error }),
-    ),
   );
-  let serverBrowserListenersStarted = false;
-  const listenForServerBrowser = Effect.suspend(() => {
-    if (serverBrowserListenersStarted) return Effect.void;
-    serverBrowserListenersStarted = true;
+  let browserHostStarted = false;
+  // Subscribes before the attach that follows, so no event falls between the two.
+  const listenToBrowserHost = Effect.suspend(() => {
+    if (browserHostStarted) return Effect.void;
+    browserHostStarted = true;
+    const listen = Effect.forkIn(parentScope, { startImmediately: true });
     return Effect.all(
       [
-        browserHost.pointers.pipe(
-          Stream.runForEach(emitAgentPointer),
-          Effect.forkIn(parentScope, { startImmediately: true }),
-        ),
-        browserHost.captures.pipe(
-          Stream.runForEach(setServerCaptureActive),
-          Effect.forkIn(parentScope, { startImmediately: true }),
-        ),
+        browserHost.pointers.pipe(Stream.runForEach(emitAgentPointer), listen),
+        browserHost.painting.pipe(Stream.runForEach(updateServerTabCapturing), listen),
       ],
       { discard: true },
     );

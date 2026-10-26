@@ -27,7 +27,7 @@ import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRe
 
 const HERMES_INSTANCE_ID = ProviderInstanceId.make("hermes");
 
-const REPLAY_SETTINGS = Schema.decodeUnknownSync(AcpRegistrySettings)({
+const REPLAY_SETTINGS = Schema.decodeSync(AcpRegistrySettings)({
   agentId: "replay-agent",
   authMethodId: "replay",
 });

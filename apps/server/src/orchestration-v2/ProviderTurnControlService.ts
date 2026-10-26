@@ -320,12 +320,10 @@ export const layer: Layer.Layer<
       steer: Effect.fn("ProviderTurnControlService.steer")(
         function* (input) {
           const existingSession = yield* sessions.get(input.providerSessionId);
-          const delivery = Option.isSome(existingSession)
-            ? yield* (
-                existingSession.value.getSteerDelivery?.(input.messageId) ??
-                  Effect.succeed(undefined)
-              )
-            : undefined;
+          const delivery =
+            Option.isSome(existingSession) && existingSession.value.getSteerDelivery
+              ? yield* existingSession.value.getSteerDelivery(input.messageId)
+              : undefined;
           if (delivery === "accepted") return;
           if (delivery === "unknown") {
             return yield* new ProviderTurnControlError({
