@@ -755,7 +755,12 @@ export const makeAcpAgentDriver = <Settings>(
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
       initialSnapshot: () => checkReadiness,
       checkProvider,
-      enrichSnapshot: ({ settings, snapshot, getSnapshot, publishSnapshot }) => {
+      enrichSnapshot: Effect.fn("enrichSnapshot")(function ({
+        settings,
+        snapshot,
+        getSnapshot,
+        publishSnapshot,
+      }) {
         if (!snapshot.installed) return Effect.void;
         const publishEnrichment = (
           Option.isSome(runtimeCoordinator)
@@ -852,7 +857,7 @@ export const makeAcpAgentDriver = <Settings>(
             discard: true,
           },
         );
-      },
+      }),
     }).pipe(
       Effect.mapError(
         (cause) =>
