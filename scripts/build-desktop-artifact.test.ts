@@ -102,7 +102,9 @@ const makeLinuxCliArchiveFixture = Effect.fn("test.makeLinuxCliArchiveFixture")(
   }
   const archivePath = path.join(input.root, `${input.stem}.tar.gz`);
   const tar = yield* spawner.spawn(
-    ChildProcess.make("tar", ["-czf", archivePath, "-C", contentRoot, "."], {
+    // Relative archive name: GNU tar on Windows reads `C:\...` after -f as a remote host.
+    ChildProcess.make("tar", ["-czf", `${input.stem}.tar.gz`, "-C", contentRoot, "."], {
+      cwd: input.root,
       stdin: "ignore",
       stdout: "ignore",
       stderr: "pipe",
@@ -1163,6 +1165,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     return Effect.scoped(
       Effect.gen(function* () {
+        // The probe inherits process.env, and Electron hosts such as T3 Code set this.
+        const inherited = process.env.ELECTRON_RUN_AS_NODE;
+        delete process.env.ELECTRON_RUN_AS_NODE;
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (inherited !== undefined) process.env.ELECTRON_RUN_AS_NODE = inherited;
+          }),
+        );
         const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
