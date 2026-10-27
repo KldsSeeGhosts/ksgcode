@@ -1314,6 +1314,7 @@ const DEFAULT_DISABLED_PROVIDER_DRIVERS: ReadonlySet<ProviderDriverKind> = new S
   [
     "cursor",
     "grok",
+    "fx",
     "muse",
     "pi",
     "opencode",
