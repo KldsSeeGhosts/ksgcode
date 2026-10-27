@@ -1,9 +1,8 @@
 # Updating T3 Code
 
 The app you use and the server running your agents can be on different machines.
-When a server is behind your web or desktop app, an update notice appears in the
-conversation and **Settings → Connections**. Update the machine named in that
-notice.
+When a server is behind your web or desktop app, the update button at the bottom
+of the sidebar and **Settings → Environments** offer to update it.
 
 ## Update everything at once
 
@@ -25,9 +24,8 @@ restarts.
 
 In KSG Code, server updates appear only after that version is published to the
 fork's GitHub releases. Remote desktop apps follow their own release feed. The
-confirmation lists each machine it skips
-and why, such as a machine that is offline or needs a manual update. Use the
-notice or **Settings → Connections** for those.
+confirmation lists each machine it skips and why, such as a machine that is
+offline or needs a manual update. Use **Settings → Environments** for those.
 
 If a desktop app restarts on its old version, T3 Code tells you the update did
 not apply. It does not install that version again on its own, even when another
@@ -39,7 +37,7 @@ below.
 
 ## Check upstream T3 Code nightlies
 
-In KSG Code, **Settings → General → About → Upstream** compares the included
+In KSG Code, **Settings → About → Upstream** compares the included
 upstream nightly with the newest published one, and a sidebar indicator appears
 when a newer nightly is available. **Review changes** opens the exact upstream
 comparison, and **Copy merge prompt** prepares a request you can give an agent.
@@ -56,7 +54,7 @@ show it as unknown.
 Server updates restart the connection and can interrupt active agents and
 terminal commands. Saved threads, settings, and project files remain.
 
-**Settings → General → Continue threads after restarts** is on by default.
+**Settings → Maintenance → Continue threads after restarts** is on by default.
 It resumes supported active threads after an update, crash, or machine
 restart. Changes are saved to connected environments that support this setting;
 update older servers first. If a supported environment was offline or has a
