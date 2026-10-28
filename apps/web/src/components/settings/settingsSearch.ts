@@ -667,7 +667,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "upstream-nightly",
     title: "Upstream",
-    to: "/settings/general",
+    to: "/settings/about",
     searchTerms: ["ksg fork merge sync upstream t3 code nightly check updates review changes"],
   },
   {

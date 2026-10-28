@@ -100,6 +100,9 @@ describe("searchSettings", () => {
       to: "/settings/about",
       releaseChannelOnly: true,
     });
+    expect(SETTINGS_SEARCH_ITEMS.find((item) => item.id === "upstream-nightly")).toMatchObject({
+      to: "/settings/about",
+    });
     expect(searchSettings("upstream nightly").map((item) => item.id)).toContain("upstream-nightly");
     expect(searchSettings("fork merge").map((item) => item.id)).toContain("upstream-nightly");
   });
