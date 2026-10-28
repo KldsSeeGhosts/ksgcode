@@ -419,10 +419,8 @@ it.layer(
           status.message,
           "Codex CLI is not authenticated. Run `codex login` and try again.",
         );
-        assert.deepStrictEqual(status.usageLimits?.unavailable, {
-          reason: "probeFailed",
-          message: "Codex CLI is not authenticated. Run `codex login` and try again.",
-        });
+        // No ChatGPT login means no subscription limits to report (CPA and API keys).
+        assert.strictEqual(status.usageLimits?.unavailable?.reason, "unsupported");
       }),
     );
 
@@ -2299,7 +2297,9 @@ it.layer(
           const serverSettings = yield* makeMutableServerSettingsService(
             decodeServerSettings(
               deepMerge(encodedDefaultServerSettings, {
-                providerInstances: disabledDefaultSlots("codex", "grok"),
+                // The Claude runner holds a Windows handle into the config dir past
+                // teardown, blocking the scoped temp cleanup; it is irrelevant here.
+                providerInstances: disabledDefaultSlots("codex", "grok", "claudeAgent"),
               }),
             ),
           );
@@ -2307,7 +2307,9 @@ it.layer(
           const scope = yield* Scope.make();
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
           const layerProviderRegistry = ProviderRegistry.layer.pipe(
-            Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
+            Layer.provideMerge(
+              ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(PortScanner.layerTest)),
+            ),
             Layer.provideMerge(AntigravityInstallation.AntigravityInstallation.layer),
             Layer.provideMerge(
               Layer.succeed(ServerSettingsModule.ServerSettingsService, serverSettings),
@@ -2377,6 +2379,7 @@ it.layer(
               "codex",
               "cursor",
               "deepseek",
+              "fx",
               "grok",
               "hermes",
               "muse",
@@ -2391,7 +2394,7 @@ it.layer(
             const museProvider = providers.find((provider) => provider.driver === "muse");
             assert.strictEqual(museProvider?.enabled, false);
             assert.strictEqual(museProvider?.status, "disabled");
-            for (const driver of ["deepseek", "hermes", "omp", "zcode"]) {
+            for (const driver of ["deepseek", "fx", "hermes", "omp", "zcode"]) {
               assert.strictEqual(
                 providers.find((provider) => provider.driver === driver)?.enabled,
                 false,
