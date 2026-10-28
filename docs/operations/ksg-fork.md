@@ -10,7 +10,7 @@ share state and must not run side by side.
 ## Syncing with upstream
 
 Choose a published upstream release, not a tag from the fork's mixed tag list.
-Settings → General → About shows the installed build's included upstream
+Settings → About shows the installed build's included upstream
 nightly and offers a review link and merge prompt when a newer one exists.
 Checking never merges, publishes, or installs anything.
 
