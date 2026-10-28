@@ -967,7 +967,6 @@ describe("live reasoning groups", () => {
       ],
       {
         isWorking: true,
-        activeTurnInProgress: true,
         latestRun: {
           runId,
           status: "running",
