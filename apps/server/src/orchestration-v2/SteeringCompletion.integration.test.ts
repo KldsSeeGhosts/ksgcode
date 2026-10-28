@@ -52,6 +52,7 @@ it.effect.each(
           "without native steering",
           "with interrupting native steering",
           "settled only",
+          "during continuation",
         ] as const
       ).map((timing) => ({
         mailbox,
@@ -61,8 +62,9 @@ it.effect.each(
     )
     .filter(
       ({ mailbox, timing }) =>
-        mailbox ||
-        (timing !== "without native steering" &&
+        (mailbox && timing !== "during continuation") ||
+        (!mailbox &&
+          timing !== "without native steering" &&
           timing !== "with interrupting native steering" &&
           timing !== "settled only"),
     ),
@@ -159,6 +161,7 @@ it.effect.each(
                     steerReceipts.set(turn.message.messageId, "accepted");
                     return;
                   }
+                  if (timing === "during continuation") return;
                   if (timing === "with uncertain active delivery") {
                     steerReceipts.set(turn.message.messageId, "unknown");
                     return yield* new ProviderAdapter.ProviderAdapterSteerRunError({
@@ -331,6 +334,29 @@ it.effect.each(
             : {}),
         });
         if (timing !== "before dispatch") yield* dispatchSteer;
+        if (timing === "during continuation") {
+          const projection = yield* orchestrator.getThreadProjection(threadId);
+          const turn = projection.providerTurns[0]!;
+          const failed = yield* watch(
+            (event) => event.type === "provider-turn.updated" && event.payload.status === "failed",
+          );
+          yield* Queue.offer(events, {
+            type: "provider_turn.updated",
+            driver,
+            providerTurn: { ...turn, status: "failed", completedAt: yield* DateTime.now },
+          });
+          yield* Fiber.join(failed);
+          yield* worker.drain();
+          assert.equal(steerCalls, 1);
+          assert.lengthOf(started, 1);
+          const continued = yield* orchestrator.getThreadProjection(threadId);
+          assert.equal(continued.runs[0]?.status, "running");
+          assert.equal(
+            continued.messages.find((message) => message.id === messageId)?.runId,
+            first.runId,
+          );
+          return;
+        }
         if (timing === "after delivery") yield* worker.drain();
         if (
           timing === "with uncertain active delivery" ||
