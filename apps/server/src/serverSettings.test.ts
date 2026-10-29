@@ -28,6 +28,7 @@ import { sourceControlHostSecretName } from "./sourceControl/sourceControlHostSe
 import * as ServerConfig from "./config.ts";
 import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import * as ServerSettingsModule from "./serverSettings.ts";
 import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.ts";
 
@@ -280,24 +281,46 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
   it.effect("saves through a symlinked settings file without replacing the link", () =>
     Effect.gen(function* () {
-      const config = yield* ServerConfig.ServerConfig;
-      const fs = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
-      const service = yield* ServerSettingsModule.ServerSettingsService;
-      const dotfiles = yield* fs.makeTempDirectoryScoped({ prefix: "t3-settings-dotfiles-" });
-      const linkedSettingsPath = path.join(dotfiles, "settings.json");
-      yield* fs.writeFileString(linkedSettingsPath, `{ "responseStreamingMode": "turn" }`);
-      yield* fs.remove(config.settingsPath, { force: true });
-      yield* fs.symlink(linkedSettingsPath, config.settingsPath);
+      const native = yield* FileSystem.FileSystem;
+      let link: { path: string; target: string } | undefined;
+      // File symlinks need Windows privileges; emulate link lookup while keeping real atomic writes.
+      const fs = FileSystem.make({
+        ...native,
+        readLink: (filePath) =>
+          !symlinksSupported && link?.path === filePath
+            ? Effect.succeed(link.target)
+            : native.readLink(filePath),
+        readFile: (filePath) =>
+          Effect.suspend(() =>
+            native.readFile(!symlinksSupported && link?.path === filePath ? link.target : filePath),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const config = yield* ServerConfig.ServerConfig;
+        const path = yield* Path.Path;
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const dotfiles = yield* fs.makeTempDirectoryScoped({ prefix: "t3-settings-dotfiles-" });
+        const linkedSettingsPath = path.join(dotfiles, "settings.json");
+        yield* fs.writeFileString(linkedSettingsPath, `{ "responseStreamingMode": "turn" }`);
+        yield* fs.remove(config.settingsPath, { force: true });
+        link = { path: config.settingsPath, target: linkedSettingsPath };
+        if (symlinksSupported) yield* fs.symlink(linkedSettingsPath, config.settingsPath);
+        else yield* native.writeFileString(config.settingsPath, "link placeholder");
 
-      yield* service.updateSettings({ responseStreamingMode: "paragraph" });
+        yield* service.updateSettings({ responseStreamingMode: "paragraph" });
 
-      assert.equal(yield* fs.readLink(config.settingsPath), linkedSettingsPath);
-      const persisted = yield* decodeServerSettingsJson(
-        yield* fs.readFileString(linkedSettingsPath),
+        assert.equal(yield* fs.readLink(config.settingsPath), linkedSettingsPath);
+        if (!symlinksSupported)
+          assert.equal(yield* native.readFileString(config.settingsPath), "link placeholder");
+        const persisted = yield* decodeServerSettingsJson(
+          yield* fs.readFileString(linkedSettingsPath),
+        );
+        assert.equal(persisted.responseStreamingMode, "paragraph");
+      }).pipe(
+        Effect.provide(layerServerSettings()),
+        Effect.provideService(FileSystem.FileSystem, fs),
       );
-      assert.equal(persisted.responseStreamingMode, "paragraph");
-    }).pipe(Effect.provide(layerServerSettings())),
+    }),
   );
 
   it.effect("retries a failed settings read instead of keeping the failure", () =>

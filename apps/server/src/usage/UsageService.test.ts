@@ -1640,7 +1640,7 @@ describe("UsageService", () => {
       const alias = NodePath.join(home, "zcode-alias");
       yield* Effect.promise(async () => {
         await NodeFSP.mkdir(NodePath.join(root, "db"), { recursive: true });
-        await NodeFSP.symlink(root, alias);
+        await NodeFSP.symlink(root, alias, "junction");
         const db = new NodeSqlite.DatabaseSync(NodePath.join(root, "db", "db.sqlite"));
         try {
           db.exec(

@@ -1854,7 +1854,7 @@ describe("ClaudeAdapterV2 attachments", () => {
             yield* deliver;
             const retried = offeredMessages.at(-1)!.message.content;
             assert.notInclude(JSON.stringify(retried), '"type":"document"');
-            assert.include(JSON.stringify(retried), documentPath);
+            assert.include(JSON.stringify(retried), JSON.stringify(documentPath).slice(1, -1));
             assert.isBelow(Buffer.byteLength(JSON.stringify(offeredMessages)), 32_000_000);
             return;
           }
@@ -1903,7 +1903,7 @@ describe("ClaudeAdapterV2 attachments", () => {
                 typeof sent === "string" ? [] : sent.filter((block) => block.type === "image"),
                 budget === "partial-images" ? 1 : 0,
               );
-              assert.include(JSON.stringify(sent), imagePath);
+              assert.include(JSON.stringify(sent), JSON.stringify(imagePath).slice(1, -1));
               yield* runtime.steerTurn({
                 threadId,
                 runId: RunId.make("run-claude-attachments"),
@@ -1922,7 +1922,7 @@ describe("ClaudeAdapterV2 attachments", () => {
                   : steered.filter((block) => block.type === "image"),
                 0,
               );
-              assert.include(JSON.stringify(steered), imagePath);
+              assert.include(JSON.stringify(steered), JSON.stringify(imagePath).slice(1, -1));
               assert.isBelow(
                 Buffer.byteLength(
                   JSON.stringify(offeredMessages.map((message) => message.message)),
@@ -1984,7 +1984,7 @@ describe("ClaudeAdapterV2 attachments", () => {
               0,
               budget,
             );
-            assert.include(JSON.stringify(sent), documentPath);
+            assert.include(JSON.stringify(sent), JSON.stringify(documentPath).slice(1, -1));
             return;
           }
           if (!resumed) {
@@ -2197,7 +2197,7 @@ describe("ClaudeAdapterV2 attachments", () => {
             );
             if (scenario === "text-only")
               assert.equal(sent, ultrathink ? "Ultrathink:\nContinue." : "Continue.");
-            else assert.include(JSON.stringify(sent), documentPath);
+            else assert.include(JSON.stringify(sent), JSON.stringify(documentPath).slice(1, -1));
           }
         }).pipe(
           Effect.provide(
@@ -3932,105 +3932,129 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         ),
     );
 
-    it.effect("pins tool search on when the user's Claude settings choose auto", () =>
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const home = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-claude-tool-search-",
-        });
-        const openedToolSearch = (
-          settingsJson: string,
-          cwd = CLAUDE_TEST_RUNTIME_POLICY.cwd,
-          environment?: NodeJS.ProcessEnv,
-          launchArgs = "",
-        ) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              yield* fileSystem.writeFileString(path.join(home, "settings.json"), settingsJson);
-              const harness = yield* makeWakeHarnessWithOptions({
-                settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath: home, launchArgs },
-                ...(environment === undefined ? {} : { environment }),
-              });
-              yield* harness.runtime.startTurn(
-                makeClaudeTestTurnInput({
-                  threadId: harness.threadId,
-                  providerThread: harness.providerThread,
-                  now: yield* DateTime.now,
-                  attemptId: RunAttemptId.make("attempt-tool-search"),
-                  text: "Run git status.",
-                  attachments: [],
-                  runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-                    ...CLAUDE_TEST_RUNTIME_POLICY,
-                    cwd,
+    it.effect.each(["linux", "win32"] as const)(
+      "pins tool search on using %s settings precedence",
+      (platform) =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          const home = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "t3-claude-tool-search-",
+          });
+          const openedToolSearch = (
+            settingsJson: string,
+            cwd = CLAUDE_TEST_RUNTIME_POLICY.cwd,
+            environment?: NodeJS.ProcessEnv,
+            launchArgs = "",
+          ) =>
+            Effect.scoped(
+              Effect.gen(function* () {
+                yield* fileSystem.writeFileString(path.join(home, "settings.json"), settingsJson);
+                const harness = yield* makeWakeHarnessWithOptions({
+                  settings: { ...DEFAULT_CLAUDE_SETTINGS, homePath: home, launchArgs },
+                  ...(environment === undefined ? {} : { environment }),
+                });
+                yield* harness.runtime.startTurn(
+                  makeClaudeTestTurnInput({
+                    threadId: harness.threadId,
+                    providerThread: harness.providerThread,
+                    now: yield* DateTime.now,
+                    attemptId: RunAttemptId.make("attempt-tool-search"),
+                    text: "Run git status.",
+                    attachments: [],
+                    runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+                      ...CLAUDE_TEST_RUNTIME_POLICY,
+                      cwd,
+                    }),
                   }),
-                }),
-              );
-              const settings = harness.getOpenedOptions()?.settings;
-              return typeof settings === "object" ? settings.env?.ENABLE_TOOL_SEARCH : undefined;
-            }),
+                );
+                const settings = harness.getOpenedOptions()?.settings;
+                return typeof settings === "object" ? settings.env?.ENABLE_TOOL_SEARCH : undefined;
+              }),
+            );
+          assert.equal(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"auto"}}'), "true");
+          assert.isUndefined(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"false"}}'));
+          assert.isUndefined(yield* openedToolSearch("{}"));
+          // --settings beats local, project, and user settings.
+          assert.equal(
+            yield* openedToolSearch(
+              '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}',
+              CLAUDE_TEST_RUNTIME_POLICY.cwd,
+              undefined,
+              `--settings '{"env":{"ENABLE_TOOL_SEARCH":"false"}}'`,
+            ),
+            "false",
           );
-        assert.equal(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"auto"}}'), "true");
-        assert.isUndefined(yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"false"}}'));
-        assert.isUndefined(yield* openedToolSearch("{}"));
-        // --settings beats local, project, and user settings.
-        assert.equal(
-          yield* openedToolSearch(
+
+          // Claude Code keeps the local file at the repository root, the main checkout's root in a
+          // worktree, and that file beats the user's settings.
+          const repo = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-repo-" });
+          const worktree = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-wt-" });
+          const worktreeGitDir = path.join(repo, ".git", "worktrees", "wt");
+          yield* fileSystem.makeDirectory(worktreeGitDir, { recursive: true });
+          yield* fileSystem.writeFileString(path.join(worktreeGitDir, "commondir"), "../..\n");
+          yield* fileSystem.writeFileString(
+            path.join(worktree, ".git"),
+            `gitdir: ${worktreeGitDir}\n`,
+          );
+          yield* fileSystem.makeDirectory(path.join(repo, ".claude"));
+          yield* fileSystem.makeDirectory(path.join(repo, "packages", "app"), { recursive: true });
+          const rootLocal = (value: string) =>
+            fileSystem.writeFileString(
+              path.join(repo, ".claude", "settings.local.json"),
+              `{"env":{"ENABLE_TOOL_SEARCH":"${value}"}}`,
+            );
+          const userAuto = '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}';
+          yield* rootLocal("auto");
+          assert.equal(
+            yield* openedToolSearch("{}", worktree),
+            platform === "win32" ? undefined : "true",
+          );
+          yield* rootLocal("false");
+          assert.equal(
+            yield* openedToolSearch(userAuto, worktree),
+            platform === "win32" ? "true" : undefined,
+          );
+          assert.equal(
+            yield* openedToolSearch(userAuto, path.join(repo, "packages", "app")),
+            platform === "win32" ? "true" : undefined,
+          );
+          yield* rootLocal("auto");
+          yield* fileSystem.makeDirectory(path.join(worktree, ".claude"));
+          yield* fileSystem.writeFileString(
+            path.join(worktree, ".claude", "settings.local.json"),
+            '{"env":{"ENABLE_TOOL_SEARCH":"false"}}',
+          );
+          assert.equal(
+            yield* openedToolSearch(userAuto, worktree),
+            platform === "win32" ? undefined : "true",
+          );
+
+          // Project settings beat user settings, and the process env applies only when no file sets it.
+          const project = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "t3-claude-project-",
+          });
+          yield* fileSystem.makeDirectory(path.join(project, ".claude"));
+          yield* fileSystem.writeFileString(
+            path.join(project, ".claude", "settings.json"),
             '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}',
-            CLAUDE_TEST_RUNTIME_POLICY.cwd,
-            undefined,
-            `--settings '{"env":{"ENABLE_TOOL_SEARCH":"false"}}'`,
-          ),
-          "false",
-        );
-
-        // Claude Code keeps the local file at the repository root, the main checkout's root in a
-        // worktree, and that file beats the user's settings.
-        const repo = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-repo-" });
-        const worktree = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-wt-" });
-        const worktreeGitDir = path.join(repo, ".git", "worktrees", "wt");
-        yield* fileSystem.makeDirectory(worktreeGitDir, { recursive: true });
-        yield* fileSystem.writeFileString(path.join(worktreeGitDir, "commondir"), "../..\n");
-        yield* fileSystem.writeFileString(
-          path.join(worktree, ".git"),
-          `gitdir: ${worktreeGitDir}\n`,
-        );
-        yield* fileSystem.makeDirectory(path.join(repo, ".claude"));
-        yield* fileSystem.makeDirectory(path.join(repo, "packages", "app"), { recursive: true });
-        const rootLocal = (value: string) =>
-          fileSystem.writeFileString(
-            path.join(repo, ".claude", "settings.local.json"),
-            `{"env":{"ENABLE_TOOL_SEARCH":"${value}"}}`,
           );
-        const userAuto = '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}';
-        yield* rootLocal("auto");
-        assert.equal(yield* openedToolSearch("{}", worktree), "true");
-        yield* rootLocal("false");
-        assert.isUndefined(yield* openedToolSearch(userAuto, worktree));
-        assert.isUndefined(yield* openedToolSearch(userAuto, path.join(repo, "packages", "app")));
-
-        // Project settings beat user settings, and the process env applies only when no file sets it.
-        const project = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-claude-project-" });
-        yield* fileSystem.makeDirectory(path.join(project, ".claude"));
-        yield* fileSystem.writeFileString(
-          path.join(project, ".claude", "settings.json"),
-          '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}',
-        );
-        assert.equal(
-          yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"false"}}', project),
-          "true",
-        );
-        assert.equal(
-          yield* openedToolSearch("{}", CLAUDE_TEST_RUNTIME_POLICY.cwd, {
-            ENABLE_TOOL_SEARCH: "auto",
-          }),
-          "true",
-        );
-      }).pipe(
-        Effect.provide(
-          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          assert.equal(
+            yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"false"}}', project),
+            "true",
+          );
+          assert.equal(
+            yield* openedToolSearch("{}", CLAUDE_TEST_RUNTIME_POLICY.cwd, {
+              ENABLE_TOOL_SEARCH: "auto",
+            }),
+            "true",
+          );
+        }).pipe(
+          Effect.provideService(HostProcess.Platform, platform),
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
         ),
-      ),
     );
   });
 
