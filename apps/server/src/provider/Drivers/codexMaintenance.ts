@@ -1,7 +1,6 @@
 import { ProviderDriverKind } from "@t3tools/contracts";
 import {
   makePackageManagedProviderMaintenanceResolver,
-  normalizeCommandPath,
   type ProviderMaintenanceCapabilitiesResolver,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import * as Effect from "effect/Effect";
@@ -65,7 +64,19 @@ function standaloneReleaseLookup(env: NodeJS.ProcessEnv) {
   };
 }
 
-/** `codex update` owns the shared home's standalone tree; auth-overlay homes do not carry it. */
+const CODEX_STANDALONE_HOME_PATTERN = /^(.*)\/packages\/standalone\//is;
+
+function codexStandaloneHome(commandPath: string): string | null {
+  // Slash replacement preserves indices; Unicode lowercasing can change the path length.
+  const match = CODEX_STANDALONE_HOME_PATTERN.exec(commandPath.replaceAll("\\", "/"));
+  if (!match) {
+    return null;
+  }
+  const home = match[1]!;
+  // Keep root separators: `C:` is drive-relative, and an empty home is not `/`.
+  const isRoot = home === "" || /^[a-z]:$/i.test(home);
+  return commandPath.slice(0, home.length + (isRoot ? 1 : 0));
+}
 export const makeCodexMaintenanceResolver = Effect.fn("makeCodexMaintenanceResolver")(function* (
   sharedHomePath: string,
 ) {
@@ -75,10 +86,14 @@ export const makeCodexMaintenanceResolver = Effect.fn("makeCodexMaintenanceResol
     npmPackageName: "@openai/codex",
     nativeUpdate: {
       args: ["update"],
-      isCommandPath: (commandPath) =>
-        normalizeCommandPath(commandPath).includes("/packages/standalone/"),
+      isCommandPath: (commandPath) => codexStandaloneHome(commandPath) !== null,
       requiresCommandPath: true,
-      env: { CODEX_HOME: sharedHomePath },
+      env: (context) => ({
+        CODEX_HOME:
+          codexStandaloneHome(context.realCommandPath) ??
+          codexStandaloneHome(context.resolvedCommandPath) ??
+          sharedHomePath,
+      }),
     },
   });
   return {
@@ -97,7 +112,7 @@ export const makeCodexMaintenanceResolver = Effect.fn("makeCodexMaintenanceResol
           const lookup = standaloneReleaseLookup(channelEnv);
           return {
             ...capabilities,
-            update: { ...update, env: { ...channelEnv, CODEX_HOME: sharedHomePath } },
+            update: { ...update, env: { ...channelEnv, ...update.env } },
             latestVersionLookup: {
               cacheKey: lookup.cacheKey,
               read: lookup.read.pipe(Effect.provideService(HttpClient.HttpClient, httpClient)),

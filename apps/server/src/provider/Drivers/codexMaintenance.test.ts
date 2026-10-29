@@ -141,12 +141,16 @@ it.layer(NodeServices.layer)("Codex maintenance release channel", (it) => {
   ])("$name", (fixture) => {
     const requests: Array<string> = [];
     return Effect.gen(function* () {
-      const capabilities = yield* resolveMaintenance(fixture.env);
+      const owningHome = "/opt/shared-codex";
+      const capabilities = yield* resolveMaintenance(
+        fixture.env,
+        `${owningHome}/packages/standalone/current/bin/codex`,
+      );
       expect(yield* resolveLatestProviderVersion(capabilities)).toBe(fixture.version);
       expect(requests).toEqual(fixture.urls);
       expect(capabilities.update?.env).toEqual({
         ...fixture.env,
-        CODEX_HOME: sharedHome,
+        CODEX_HOME: owningHome,
       });
     }).pipe(
       Effect.provide(ProviderLatestVersions.layer),
