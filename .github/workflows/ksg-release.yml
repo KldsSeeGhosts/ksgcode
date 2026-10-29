@@ -192,11 +192,16 @@ jobs:
         with:
           fetch-depth: 0
           sparse-checkout: |
-            .github/scripts
-            apps/desktop/src/updates
-      - uses: actions/setup-node@v6
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
+          cache: true
+          run-install: false
+      - name: Install release notes test dependencies
+        run: vp install --filter=@t3tools/desktop... --ignore-scripts
       - name: Test release notes generator
         run: node --test .github/scripts/ksg-release-notes.test.cjs
       - name: Fetch upstream nightly tags
