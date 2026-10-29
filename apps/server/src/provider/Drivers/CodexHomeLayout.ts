@@ -1,3 +1,5 @@
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's symlink cannot select Windows junctions.
+import * as NodeFSP from "node:fs/promises";
 import { ProviderDriverKind, type CodexSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -233,9 +235,18 @@ const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (inpu
     linkPath: link,
   });
 
-  const createLink = input.fileSystem.symlink(target, link).pipe(
-    Effect.catchTags({
-      PlatformError: (cause) =>
+  const createLink = Effect.gen(function* () {
+    // Junctions share directories on Windows without requiring symlink privileges.
+    if (
+      (yield* HostProcess.Platform) === "win32" &&
+      (yield* input.fileSystem.stat(target)).type === "Directory"
+    ) {
+      return yield* Effect.tryPromise(() => NodeFSP.symlink(target, link, "junction"));
+    }
+    return yield* input.fileSystem.symlink(target, link);
+  }).pipe(
+    Effect.mapError(
+      (cause) =>
         new CodexShadowHomeFileSystemError({
           sharedHomePath: input.sharedHomePath,
           effectiveHomePath: input.effectiveHomePath,
@@ -245,7 +256,7 @@ const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (inpu
           entryName: input.entryName,
           cause,
         }),
-    }),
+    ),
   );
 
   if (state._tag === "NotSymlink") {

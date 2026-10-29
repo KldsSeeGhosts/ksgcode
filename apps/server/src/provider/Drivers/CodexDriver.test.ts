@@ -251,8 +251,8 @@ it.layer(layerTest)("CodexDriver", (it) => {
         expect(catalogTokens).toEqual(["Bearer dummy-owned-access"]);
         expect(restored.auth.email).toBe("account@example.test");
         expect(restored.runtimePaths?.homePath).toBe(sharedHome);
-        expect(restored.runtimePaths?.shadowHomePath).toContain(
-          `providers/codex/${instanceId}/shadow`,
+        expect(restored.runtimePaths?.shadowHomePath).toBe(
+          NodePath.join(serverConfig.stateDir, "providers", "codex", instanceId, "shadow"),
         );
         const scan = yield* instance.snapshotForCwd!(serverConfig.stateDir).pipe(Effect.exit);
         expect(Exit.isFailure(scan)).toBe(true);
