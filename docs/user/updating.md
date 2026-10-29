@@ -22,8 +22,9 @@ restart from the update button when you are ready. A server still restarting
 finishes on its own, and the button keeps showing it after the desktop app
 restarts.
 
-In KSG Code, server updates appear only after that version is published to the
-fork's GitHub releases. Remote desktop apps follow their own release feed. The
+Remote desktop apps follow their own release feed. When the desktop app offers the update,
+background services update right away too. Other servers, including older
+background services, update only after that version is published to KSG's GitHub releases. The
 confirmation lists each machine it skips and why, such as a machine that is
 offline or needs a manual update. Use **Settings → Environments** for those.
 
@@ -48,6 +49,29 @@ and released as a new KSG build, install that build with the sidebar updater.
 The included baseline then advances, so the next nightly is detected even if
 it arrives on the same day. Development builds without a recorded baseline
 show it as unknown.
+
+## Switch between Stable and Nightly
+
+In the desktop app, change **Settings → About → Update track**. T3 Code shows each
+connected machine it will move and each one it skips, then moves them in one
+step. Remote servers install the latest release on the new track. Remote desktop
+apps reinstall on the new track. This app reinstalls last. Your threads,
+settings, and data stay.
+
+A background service cannot move to an older release remotely. When Stable is
+older than its Nightly, run `t3 update --channel stable --allow-downgrade` on
+that machine.
+
+A switch is blocked for a machine whose database already has changes the
+target release does not support, or when T3 Code cannot confirm that it does.
+The dialog says why: update a machine on its current track first when its
+release is too old to check, or wait until the target track includes the
+changes. A Mac running the desktop app must switch on that Mac.
+
+Each machine keeps the new track even if its switch did not finish, but it
+moves to that track only through a switch. **Update track** shows how many
+machines still run the other track. **Review** opens the same dialog with fresh
+checks.
 
 ## Before you update
 

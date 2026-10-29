@@ -31,6 +31,7 @@ export interface AntigravityAcpRuntimeInput extends Omit<
   | "authenticateEagerly"
   | "cancelBehavior"
   | "clientCapabilities"
+  | "clientInfo"
   | "onStderr"
   | "resumeMethod"
   | "transformSessionUpdate"
@@ -38,7 +39,7 @@ export interface AntigravityAcpRuntimeInput extends Omit<
 > {
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly onAuthorizationUrl?: (url: string) => Effect.Effect<void, EffectAcpErrors.AcpError>;
-  readonly clientFileSystem?: boolean;
+  readonly clientFileReads?: boolean;
   readonly authMethod?: AntigravityAuthMethod;
 }
 
@@ -56,11 +57,11 @@ export const makeAntigravityAcpRuntime = Effect.fn("makeAntigravityAcpRuntime")(
       authenticateEagerly: true,
       resumeMethod: "resume",
       cancelBehavior: "wait-for-prompt",
+      // The agent offers non-Gemini models only to allowlisted clients such as Zed.
+      clientInfo: { name: "zed", version: "0.0.0" },
       clientCapabilities: {
-        fs: {
-          readTextFile: input.clientFileSystem === true,
-          writeTextFile: input.clientFileSystem === true,
-        },
+        // Advertising writes swaps the agent's diff edits for whole-file client_edit_file.
+        fs: { readTextFile: input.clientFileReads === true, writeTextFile: false },
         terminal: false,
       },
       transformStdout: makeAntigravityStdoutTransform(
@@ -109,9 +110,14 @@ function antigravityModelConfig(configOptions: SessionConfigOptions) {
   return selectConfig(configOptions, (option) => option.id === "model");
 }
 
-export function antigravityThinkingConfig(configOptions: SessionConfigOptions) {
+export function antigravityModelOptions(configOptions: SessionConfigOptions) {
+  const config = antigravityModelConfig(configOptions);
+  return config ? selectValues(config) : [];
+}
+
+export function antigravityThinkingConfig(configOptions: SessionConfigOptions | null | undefined) {
   return selectConfig(
-    configOptions,
+    configOptions ?? [],
     (option) => option.category === "thought_level" || option.id === "thinking_level",
   );
 }
@@ -141,13 +147,30 @@ function splitAntigravityModel(
   return family ? { model: family, thinkingLevel: modelId.slice(family.length + 1) } : undefined;
 }
 
+/**
+ * Runtime 1.4 lists `gemini-3.8-flash` where 1.3 listed `gemini-3.8-flash-high`. The agent
+ * still accepts the old IDs, so pass them through; the current model may have no thinking option.
+ */
+function legacyAntigravityFamily(
+  configOptions: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
+  model: string,
+) {
+  return antigravityModelOptions(configOptions)
+    .map((option) => option.value)
+    .filter((family) => model.startsWith(`${family}-`))
+    .toSorted((left, right) => right.length - left.length)[0];
+}
+
 function resolveAntigravityModel(input: {
   readonly configOptions: SessionConfigOptions;
   readonly model: string | null | undefined;
   readonly defaultModel?: string | undefined;
 }): string | undefined {
   if (input.model && input.model !== ANTIGRAVITY_DEFAULT_MODEL) return input.model;
-  return input.defaultModel && splitAntigravityModel(input.configOptions, input.defaultModel)
+  const options = antigravityModelOptions(input.configOptions);
+  return input.defaultModel &&
+    (options.some((option) => option.value === input.defaultModel) ||
+      legacyAntigravityFamily(input.configOptions, input.defaultModel) !== undefined)
     ? input.defaultModel
     : currentAntigravityModel(input.configOptions);
 }
@@ -178,6 +201,16 @@ export const applyAntigravityAcpModelSelection = Effect.fn("applyAntigravityAcpM
           `Antigravity model '${resolved}' is unavailable. Select an available model.`,
         ),
       );
+    const options = antigravityModelOptions(configOptions);
+    const legacyFamily = options.some((option) => option.value === resolved)
+      ? undefined
+      : legacyAntigravityFamily(configOptions, resolved);
+    if (legacyFamily !== undefined && !antigravityThinkingConfig(configOptions)) {
+      yield* input.runtime
+        .setConfigOption("model", resolved, { allowUnlistedValue: true })
+        .pipe(Effect.mapError(input.mapError));
+      return legacyFamily;
+    }
     const target = splitAntigravityModel(configOptions, resolved);
     if (!target) return yield* Effect.fail(unavailable());
     yield* input.runtime.setModel(target.model).pipe(Effect.mapError(input.mapError));

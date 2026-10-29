@@ -41,6 +41,7 @@ import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
 import * as AnalyticsService from "../telemetry/AnalyticsService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -336,6 +337,7 @@ export const layer: Layer.Layer<
   | IdAllocator.IdAllocatorV2
   | ProjectionStore.ProjectionStoreV2
   | ThreadCommandExecutor.ThreadCommandExecutor
+  | ProviderInstanceRegistry.ProviderInstanceRegistry
 > = Layer.effect(
   ProviderEventIngestorV2,
   Effect.gen(function* () {
@@ -346,6 +348,8 @@ export const layer: Layer.Layer<
     const threadCommands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
     const analytics = yield* ProviderTurnAnalytics;
     const agentScope = yield* AgentScope;
+    const instances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const scope = yield* Effect.scope;
     const completedTurnAnalytics = new Set<string>();
 
     // Item sizes per provider thread, for providers that report only a total.
@@ -893,6 +897,23 @@ export const layer: Layer.Layer<
           },
           (effect, input) =>
             effect.pipe(
+              Effect.tap((storedEvents) =>
+                Effect.gen(function* () {
+                  if (
+                    storedEvents.length === 0 ||
+                    input.event.type !== "turn.terminal" ||
+                    input.event.status !== "failed" ||
+                    input.event.failure.class !== "usage_limit"
+                  )
+                    return;
+                  const instance = yield* instances.getInstance(input.providerInstanceId);
+                  if (!instance?.snapshot.refreshUsage) return;
+                  yield* instance.snapshot.refreshUsage.pipe(
+                    Effect.ignoreCause({ log: true }),
+                    Effect.forkIn(scope, { startImmediately: true }),
+                  );
+                }),
+              ),
               Effect.flatMap((storedEvents) =>
                 Effect.gen(function* () {
                   if (input.event.type !== "app_thread.created") return storedEvents;
