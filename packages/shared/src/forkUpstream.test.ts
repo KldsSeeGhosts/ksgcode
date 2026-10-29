@@ -99,7 +99,10 @@ describe("published upstream nightlies", () => {
       "Follow the KSG fork rules and upstream sync procedure in AGENTS.md.",
     );
     expect(upstreamMergePrompt("0.0.46-nightly.20261014.3132")).toContain(
-      "Do not push, publish, install updates, or restart devices without my approval.",
+      "Once the sync is complete and checks pass, push upstream, ksg/passthrough, and ksg/dev to origin to trigger a KSG release.",
+    );
+    expect(upstreamMergePrompt("0.0.46-nightly.20261014.3132")).toContain(
+      "Verify the release publishes successfully.",
     );
   });
 });

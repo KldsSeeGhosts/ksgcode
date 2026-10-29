@@ -57,6 +57,7 @@ describe("collectServerUpdateTargets", () => {
         machine("serverseesghosts", current, "boot-service"),
       ],
       target,
+      true,
     );
     expect(targets.map(({ serverLabel, targetVersion }) => [serverLabel, targetVersion])).toEqual([
       ["MacBook Air", target],

@@ -54,5 +54,5 @@ export function upstreamReviewUrl(includedVersion: string | null, latestVersion:
 }
 
 export function upstreamMergePrompt(latestVersion: string): string {
-  return `Sync KSG Code with published upstream nightly v${latestVersion} from ${T3_UPSTREAM_REPOSITORY}. Follow the KSG fork rules and upstream sync procedure in AGENTS.md. Fetch upstream tags into refs/tags/upstream/*, verify this release's tag and commit, and merge through upstream, ksg/passthrough, then ksg/dev using their existing worktrees. Preserve the fork patches and customizations, resolve conflicts, and run focused checks. Do not push, publish, install updates, or restart devices without my approval.`;
+  return `Sync KSG Code with published upstream nightly v${latestVersion} from ${T3_UPSTREAM_REPOSITORY}. Follow the KSG fork rules and upstream sync procedure in AGENTS.md. Fetch upstream tags into refs/tags/upstream/*, verify this release's tag and commit, and merge through upstream, ksg/passthrough, then ksg/dev using their existing worktrees. Preserve the fork patches and customizations, resolve conflicts, and run focused checks. Once the sync is complete and checks pass, push upstream, ksg/passthrough, and ksg/dev to origin to trigger a KSG release. Verify the release publishes successfully.`;
 }
