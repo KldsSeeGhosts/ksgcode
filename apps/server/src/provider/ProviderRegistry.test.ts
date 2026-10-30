@@ -2317,7 +2317,14 @@ it.layer(
               deepMerge(encodedDefaultServerSettings, {
                 // The Claude runner holds a Windows handle into the config dir past
                 // teardown, blocking the scoped temp cleanup; it is irrelevant here.
-                providerInstances: disabledDefaultSlots("codex", "grok", "claudeAgent"),
+                // The decoded providerInstances type does not fit deepMerge's encoded
+                // patch type, so build the disabled slots inline.
+                providerInstances: Object.fromEntries(
+                  ["codex", "grok", "claudeAgent"].map((driver) => [
+                    ProviderInstanceId.make(driver),
+                    { driver: ProviderDriverKind.make(driver), enabled: false },
+                  ]),
+                ),
               }),
             ),
           );
