@@ -31,6 +31,11 @@ const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-launc
 const t3Home = NodePath.join(home, "t3");
 NodeFS.mkdirSync(NodePath.join(t3Home, "userdata"), { recursive: true });
 NodeFS.copyFileSync(FIXTURE_DB, NodePath.join(t3Home, "userdata/statev2.sqlite"));
+// Keep the dated migration fixture visible after the default inactivity window elapses.
+NodeFS.writeFileSync(
+  NodePath.join(t3Home, "userdata/settings.json"),
+  JSON.stringify({ sidebarAutoSettleAfterDays: null }),
+);
 
 let step = "launching the app";
 let app: ElectronApplication | undefined;
