@@ -66,6 +66,7 @@ import {
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import { withInstanceIdentity } from "@t3tools/provider-core/server/instanceIdentity";
 import { discoverAntigravitySkills, resolveAntigravityUserHome } from "./AntigravitySkills.ts";
+import { readAntigravityContextUsage } from "./antigravityUsageReader.ts";
 
 const DRIVER = ProviderDriverKind.make("antigravity");
 const decodeSettings = Schema.decodeSync(AntigravitySettings);
@@ -429,6 +430,12 @@ export const AntigravityDriver: ProviderDriver<
       makeRuntime,
       withProcess: authFlow.withProcess,
       defaultModel,
+      readContextUsage: (sessionId) =>
+        !/^[a-f0-9-]{36}$/i.test(sessionId)
+          ? Effect.succeed(null)
+          : readAntigravityContextUsage(
+              path.join(profileDirectory, "antigravity-acp", "conversations", `${sessionId}.db`),
+            ),
       onSessionStarted: provider.onSessionStarted,
       onSessionEvent: (event) => {
         if (event._tag === "ConfigOptionsUpdated") {

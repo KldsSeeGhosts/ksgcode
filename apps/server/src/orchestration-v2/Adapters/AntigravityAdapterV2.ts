@@ -25,6 +25,8 @@ import {
   type AntigravityAcpRuntimeInput,
 } from "../../provider/acp/AntigravityAcpSupport.ts";
 import { readAntigravityClientTextFile } from "../../provider/acp/AntigravityClientFiles.ts";
+import { withAntigravityContext } from "../../provider/acp/AntigravityContext.ts";
+import type { ThreadTokenUsageSnapshot } from "@t3tools/contracts";
 import {
   antigravityApprovalOptions,
   antigravitySubagentOutput,
@@ -80,6 +82,7 @@ export interface AntigravityAdapterV2Options {
   readonly onSessionEvent?: AcpAdapterV2Flavor["onSessionEvent"];
   readonly nativeLogging?: Parameters<typeof makeAcpAdapterV2>[0]["nativeLogging"];
   readonly continuationRequests?: Parameters<typeof makeAcpAdapterV2>[0]["continuationRequests"];
+  readonly readContextUsage?: (sessionId: string) => Effect.Effect<ThreadTokenUsageSnapshot | null>;
 }
 
 /** Native subagent tools report no child session ids. */
@@ -121,7 +124,7 @@ export function makeAntigravityAcpAdapterFlavor(
   const makeRuntime = Effect.fn("AntigravityAdapterV2.makeRuntime")(
     function* (input: AcpAdapterV2RuntimeInput) {
       const scope = yield* Scope.fork(yield* Effect.scope);
-      const runtime = yield* options
+      const nativeRuntime = yield* options
         .withProcess(
           Scope.close(scope, Exit.void),
           options.makeRuntime({
@@ -131,6 +134,7 @@ export function makeAntigravityAcpAdapterFlavor(
           }),
         )
         .pipe(Effect.provideService(Scope.Scope, scope));
+      const runtime = withAntigravityContext(nativeRuntime, options.readContextUsage);
       // Repair keeps state across updates, so each runtime must have one session-update handler.
       const reads = makeAntigravityReadRepair();
       // Served reads are reported from the read handler, so they take turns with agent updates.

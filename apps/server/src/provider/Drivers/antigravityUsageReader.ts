@@ -3,6 +3,7 @@ import * as NodeFSP from "node:fs/promises";
 import { pipe } from "effect/Function";
 
 import type { UsageRecord } from "@t3tools/provider-core/server/usage";
+import type { ThreadTokenUsageSnapshot } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -184,6 +185,38 @@ class AntigravityDatabaseDecodeError extends Schema.TaggedError<AntigravityDatab
 /** Generation rows can hold megabytes of context; read one at a time to bound blocking statement.all(). */
 const GENERATION_PAGE_ROWS = 1;
 const STEP_PAGE_ROWS = 64;
+
+/** The last generation is one model context, unlike the cumulative session usage. */
+export const readAntigravityContextUsage = Effect.fn("readAntigravityContextUsage")(
+  function* (_filename: string) {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql.unsafe("PRAGMA busy_timeout = 100");
+    const rows = yield* sql.unsafe<{ readonly data: unknown }>(
+      "SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1",
+    );
+    if (rows[0] === undefined) return null;
+    return yield* Effect.try(() => {
+      const usage = metadata(blob(rows[0]!.data), false).usages.at(-1);
+      if (usage === undefined) return null;
+      const inputTokens = numberAt(usage, 2) + numberAt(usage, 4) + numberAt(usage, 5);
+      const outputTokens = Math.max(numberAt(usage, 3), numberAt(usage, 9) + numberAt(usage, 10));
+      if (inputTokens + outputTokens === 0) return null;
+      return {
+        usedTokens: inputTokens + outputTokens,
+        inputTokens,
+        cachedInputTokens: numberAt(usage, 5),
+        outputTokens,
+        reasoningOutputTokens: Math.min(outputTokens, numberAt(usage, 9)),
+      } satisfies ThreadTokenUsageSnapshot;
+    });
+  },
+  (effect, filename) =>
+    effect.pipe(
+      Effect.provide(NodeSqliteClient.layer({ filename, readonly: true })),
+      Effect.scoped,
+      Effect.orElseSucceed(() => null),
+    ),
+);
 
 const readDatabase = Effect.fn("readDatabase")(function* (
   path: string,

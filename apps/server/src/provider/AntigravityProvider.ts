@@ -118,6 +118,10 @@ export function buildAntigravityModelsFromSession(
 function nativeCommands(
   commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
 ): ReadonlyArray<ServerProviderSlashCommand> {
+  commands = [
+    ...commands.filter((command) => command.name !== "compact"),
+    { name: "compact", description: "Summarize and continue in a fresh context." },
+  ];
   const seen = new Set<string>();
   return commands.flatMap((command): ServerProviderSlashCommand[] => {
     if (!command.name.trim() || seen.has(command.name)) return [];

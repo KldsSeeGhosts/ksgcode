@@ -11,7 +11,11 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { makeAntigravityUsageCache, readAntigravityUsage } from "./antigravityUsageReader.ts";
+import {
+  makeAntigravityUsageCache,
+  readAntigravityUsage,
+  readAntigravityContextUsage,
+} from "./antigravityUsageReader.ts";
 import {
   cacheSavingsUsd,
   lookupRate,
@@ -76,6 +80,45 @@ const records = (result: Effect.Success<ReturnType<typeof readAntigravityUsage>>
   result.files.flatMap((file) => file.records);
 
 describe("readAntigravityUsage", () => {
+  it.effect(
+    "reads the latest model call as context, including cached input, not session totals",
+    () =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path;
+        const dir = yield* tempDir;
+        const filename = path.join(dir, "context.db");
+        yield* seedDatabase(filename, (db) =>
+          Effect.gen(function* () {
+            yield* createTables(db);
+            for (const [idx, input] of [50_000, 2_000].entries()) {
+              yield* db.run("INSERT INTO gen_metadata VALUES (?, ?)", [
+                idx,
+                new Uint8Array(
+                  protoBytes(
+                    1,
+                    protoBytes(4, [
+                      ...protoNumber(2, input),
+                      ...protoNumber(5, 1_000),
+                      ...protoNumber(3, 100),
+                      ...protoNumber(9, 20),
+                    ]),
+                  ),
+                ),
+              ]);
+            }
+          }),
+        );
+        assert.deepStrictEqual(yield* readAntigravityContextUsage(filename), {
+          usedTokens: 3_100,
+          inputTokens: 3_000,
+          cachedInputTokens: 1_000,
+          outputTokens: 100,
+          reasoningOutputTokens: 20,
+        });
+        assert.isNull(yield* readAntigravityContextUsage(path.join(dir, "missing.db")));
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("prices Gemini models through Google's rates without guessing reseller prices", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;

@@ -108,6 +108,7 @@ const commands = [
 const expectedCommands = [
   { name: "plan", description: "Create a plan", input: { hint: "What to plan" } },
   { name: "logout", description: "Sign out of Google" },
+  { name: "compact", description: "Summarize and continue in a fresh context." },
 ];
 
 const layerTest = ProviderHostLive.layer.pipe(
@@ -575,7 +576,7 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
             auth: { status: "authenticated" },
           });
           expect(snapshot.models).toHaveLength(installed ? 11 : 0);
-          expect(snapshot.slashCommands).toHaveLength(installed ? 2 : 0);
+          expect(snapshot.slashCommands).toHaveLength(installed ? expectedCommands.length : 0);
           expect(snapshot.workspaceSnapshots).toHaveLength(installed ? 1 : 0);
           expect(snapshot.supportsTextGeneration).toBe(installed);
         }
