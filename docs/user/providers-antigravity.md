@@ -94,12 +94,7 @@ T3 Code keeps conversation history and file diffs, but Antigravity cannot rewind
 its conversation. Reverting a thread or editing and resubmitting an earlier turn
 is unavailable. Continue with a follow-up message or start a new thread.
 
-### Context and compaction
-
-Use `/compact` to summarize the conversation and continue in a fresh context
-within the same thread. Your visible history and file diffs stay intact. This
-uses the selected model for summarization; if it fails or you cancel, the
-original context remains active.
+### Context usage
 
 The context meter includes cached input tokens. If Antigravity does not report
 the model's window size, T3 Code shows the token count without a percentage.

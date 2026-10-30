@@ -91,7 +91,6 @@ let currentFast = false;
 let currentAgent = "";
 let authenticated = !requiresAuthentication;
 let promptCount = 0;
-let createdSessionCount = 0;
 const cancelledSessions = new Set<string>();
 let configuredProvider: AcpSchema.ProviderCurrentConfig | null = null;
 
@@ -583,15 +582,11 @@ const program = Effect.gen(function* () {
   yield* agent.handleCreateSession(() =>
     Effect.gen(function* () {
       yield* requireAuthentication();
-      const createdSessionId =
-        process.env.T3_ACP_UNIQUE_NEW_SESSIONS === "1"
-          ? `${sessionId}-${++createdSessionCount}`
-          : sessionId;
       if (antigravityProfile) {
-        yield* publishAntigravityCommands(createdSessionId);
+        yield* publishAntigravityCommands(sessionId);
       }
       return {
-        sessionId: createdSessionId,
+        sessionId,
         configOptions: configOptions(),
       };
     }),

@@ -30,7 +30,6 @@ import type * as EffectAcpProtocol from "effect-acp/protocol";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import { AgentScope, AgentScopeThreadId, RAISE_OOM_SCORE_LINE } from "@t3tools/shared/AgentScope";
 import * as HostProcess from "@t3tools/shared/HostProcess";
-import type { ThreadTokenUsageSnapshot } from "@t3tools/contracts";
 
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./stderr.ts";
@@ -1116,18 +1115,6 @@ export class AcpSessionRuntime extends Context.Service<
     >;
     readonly authenticate?: (methodId: string) => Effect.Effect<void, EffectAcpErrors.AcpError>;
     readonly start: () => Effect.Effect<AcpSessionRuntimeStartResult, EffectAcpErrors.AcpError>;
-    readonly createSession?: () => Effect.Effect<
-      AcpSessionRuntimeStartResult,
-      EffectAcpErrors.AcpError
-    >;
-    readonly compactSession?: () => Effect.Effect<
-      {
-        readonly response: EffectAcpSchema.PromptResponse;
-        readonly replacement?: AcpSessionRuntimeStartResult;
-        readonly contextUsage?: ThreadTokenUsageSnapshot | null;
-      },
-      EffectAcpErrors.AcpError
-    >;
     readonly getEvents: () => Stream.Stream<AcpSessionRuntimeEvent, never>;
     readonly drainEvents: Effect.Effect<void>;
     readonly getModeState: Effect.Effect<AcpSessionModeState | undefined>;
@@ -2396,20 +2383,6 @@ export const make = Effect.fn("AcpSessionRuntime.make")(function* (
         Effect.asVoid,
       ),
     start: () => start,
-    createSession: () =>
-      start.pipe(
-        Effect.flatMap((started) => {
-          const payload = {
-            cwd: options.cwd,
-            mcpServers: sessionMcpServers(started.initializeResult),
-            ...(options.additionalDirectories?.length
-              ? { additionalDirectories: options.additionalDirectories }
-              : {}),
-          } satisfies EffectAcpSchema.NewSessionRequest;
-          return runLoggedRequest("session/new", payload, acp.agent.createSession(payload));
-        }),
-        Effect.flatMap((response) => adoptSession(response.sessionId, response)),
-      ),
     getEvents: () => Stream.fromQueue(eventQueue),
     drainEvents,
     getModeState: Ref.get(modeStateRef),

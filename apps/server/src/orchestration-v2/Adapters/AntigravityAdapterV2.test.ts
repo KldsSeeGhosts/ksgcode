@@ -40,7 +40,6 @@ import {
   makeAntigravityAcpAdapterFlavor,
   makeAntigravityAdapterV2,
 } from "./AntigravityAdapterV2.ts";
-import { makeTurnInput } from "./AcpAdapterV2.testkit.ts";
 
 const flavor = makeAntigravityAcpAdapterFlavor({
   instanceId: ProviderInstanceId.make("antigravity-test"),
@@ -128,119 +127,6 @@ const layerSession = Layer.mergeAll(
   McpProviderSessions.layer,
   TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
 );
-
-describe("AntigravityAdapterV2 compaction", () => {
-  it.live("persists the replacement session and continues there with refreshed context", () =>
-    Effect.gen(function* () {
-      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const path = yield* Path.Path;
-      const crypto = yield* Crypto.Crypto;
-      const mockAgentPath = yield* path.fromFileUrl(
-        new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
-      );
-      const instanceId = ProviderInstanceId.make("antigravity-context-test");
-      const threadId = ThreadId.make("thread-antigravity-context");
-      const selections: string[] = [];
-      const adapter = yield* makeAntigravityAdapterV2({
-        instanceId,
-        selfInvocation: yield* resolveSelfInvocation(),
-        withProcess: (_stop, task) => task,
-        defaultModel: Effect.undefined,
-        readContextUsage: (id) =>
-          Effect.succeed({
-            usedTokens: id.endsWith("-2") ? 2_000 : 50_000,
-          }),
-        makeRuntime: (input) =>
-          makeAntigravityAcpRuntime({
-            ...input,
-            childProcessSpawner,
-            spawn: {
-              command: process.execPath,
-              args: [mockAgentPath],
-              cwd: input.cwd,
-              env: { T3_ACP_ANTIGRAVITY: "1", T3_ACP_UNIQUE_NEW_SESSIONS: "1" },
-            },
-          }).pipe(
-            Effect.provideService(Crypto.Crypto, crypto),
-            Effect.map((runtime) => ({
-              ...runtime,
-              prompt: (payload: Parameters<typeof runtime.prompt>[0]) =>
-                runtime.start().pipe(
-                  Effect.tap((started) =>
-                    Effect.sync(() => {
-                      selections.push(started.sessionId);
-                    }),
-                  ),
-                  Effect.andThen(runtime.prompt(payload)),
-                ),
-            })),
-          ),
-      });
-      const modelSelection = { instanceId, model: "gemini-test-low" };
-      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        cwd: process.cwd(),
-      });
-      const session = yield* adapter.openSession({
-        threadId,
-        providerSessionId: ProviderSessionId.make("provider-session-antigravity-context"),
-        modelSelection,
-        runtimePolicy,
-      });
-      let providerThread = yield* session.ensureThread({ threadId, modelSelection, runtimePolicy });
-      const originalId = providerThread.nativeThreadRef?.nativeId;
-      const now = yield* DateTime.now;
-      const compaction = makeTurnInput({
-        threadId,
-        providerThread,
-        instanceId,
-        runtimePolicy,
-        modelSelection,
-        now,
-        messageText: "/compact",
-      });
-      yield* session.compactThread!(compaction);
-      const events = yield* session.events.pipe(
-        Stream.takeUntil((event) => event.type === "turn.terminal"),
-        Stream.runCollect,
-      );
-      const updated = events.findLast((event) => event.type === "provider_thread.updated");
-      assert.equal(updated?.type, "provider_thread.updated");
-      if (updated?.type !== "provider_thread.updated") return;
-      providerThread = updated.providerThread;
-      assert.equal(providerThread.id, compaction.providerThread.id);
-      assert.notEqual(providerThread.nativeThreadRef?.nativeId, originalId);
-      assert.equal(providerThread.contextUsage?.usedTokens, 2_000);
-      const item = events.findLast(
-        (event) => event.type === "turn_item.updated" && event.turnItem.type === "compaction",
-      );
-      assert.isDefined(item);
-      yield* session.startTurn(
-        makeTurnInput({
-          threadId,
-          providerThread,
-          instanceId,
-          runtimePolicy,
-          modelSelection,
-          now,
-          ordinal: 2,
-          messageText: "Continue the pending task.",
-        }),
-      );
-      const terminal = yield* session.events.pipe(
-        Stream.filter((event) => event.type === "turn.terminal"),
-        Stream.runHead,
-      );
-      assert.equal(terminal._tag, "Some");
-      assert.deepEqual(selections, [
-        originalId,
-        providerThread.nativeThreadRef?.nativeId,
-        providerThread.nativeThreadRef?.nativeId,
-      ]);
-    }).pipe(Effect.provide(layerSession), Effect.scoped),
-  );
-});
 
 describe("AntigravityAdapterV2 session open", () => {
   it.effect.each([

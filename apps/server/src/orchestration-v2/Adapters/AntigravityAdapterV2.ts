@@ -25,7 +25,7 @@ import {
   type AntigravityAcpRuntimeInput,
 } from "../../provider/acp/AntigravityAcpSupport.ts";
 import { readAntigravityClientTextFile } from "../../provider/acp/AntigravityClientFiles.ts";
-import { withAntigravityContext } from "../../provider/acp/AntigravityContext.ts";
+import { withAntigravityContextUsage } from "../../provider/acp/AntigravityContextUsage.ts";
 import type { ThreadTokenUsageSnapshot } from "@t3tools/contracts";
 import {
   antigravityApprovalOptions,
@@ -134,7 +134,7 @@ export function makeAntigravityAcpAdapterFlavor(
           }),
         )
         .pipe(Effect.provideService(Scope.Scope, scope));
-      const runtime = withAntigravityContext(nativeRuntime, options.readContextUsage);
+      const runtime = withAntigravityContextUsage(nativeRuntime, options.readContextUsage);
       // Repair keeps state across updates, so each runtime must have one session-update handler.
       const reads = makeAntigravityReadRepair();
       // Served reads are reported from the read handler, so they take turns with agent updates.
@@ -242,7 +242,6 @@ export function makeAntigravityAcpAdapterFlavor(
     normalizeToolCall: normalizeAntigravityToolCall,
     extractSubagentUpdate: extractAntigravitySubagentUpdate,
     supportsImagePrompts: true,
-    supportsCompaction: true,
     requiresSignIn: isAntigravitySignInRequiredError,
   };
 }

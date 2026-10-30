@@ -1057,8 +1057,6 @@ interface ActiveAcpTurn {
   readonly providerTurnId: OrchestrationV2ProviderTurn["id"];
   readonly nativeThreadId: string;
   readonly nativeTurnId: string;
-  replacementSession?: AcpSessionRuntime.AcpSessionRuntimeStartResult;
-  compactionBeforeTokenCount?: number | undefined;
   readonly startedAt: DateTime.Utc;
   readonly completed: Deferred.Deferred<void, never>;
   readonly itemOrdinals: Map<string, number>;
@@ -7048,17 +7046,6 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 driver,
                 status: "completed",
                 title: "Context compacted",
-                ...(context.compactionBeforeTokenCount === undefined
-                  ? {}
-                  : {
-                      beforeTokenCount: context.compactionBeforeTokenCount,
-                    }),
-                ...(context.replacementSession === undefined ||
-                context.contextUsage?.usedTokens === undefined
-                  ? {}
-                  : {
-                      afterTokenCount: context.contextUsage.usedTokens,
-                    }),
                 startedAt: context.startedAt,
                 completedAt: now,
                 updatedAt: now,
@@ -7079,16 +7066,6 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           });
           const updatedProviderThread: OrchestrationV2ProviderThread = {
             ...context.input.providerThread,
-            ...(context.replacementSession === undefined
-              ? {}
-              : {
-                  nativeThreadRef: {
-                    driver,
-                    nativeId: context.replacementSession.sessionId,
-                    strength: "strong",
-                  },
-                  nativeConversationHeadRef: null,
-                }),
             providerSessionId: input.providerSessionId,
             status: "active",
             lastRunOrdinal: context.input.runOrdinal,
@@ -7098,15 +7075,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             nativeMetadata: context.nativeMetadata,
             updatedAt: now,
           };
-          yield* Ref.update(providerThreadByNativeSessionId, (current) => {
-            const next = new Map(current);
-            if (context.replacementSession !== undefined) next.delete(context.nativeThreadId);
-            next.set(
-              context.replacementSession?.sessionId ?? context.nativeThreadId,
-              updatedProviderThread,
-            );
-            return next;
-          });
+          yield* Ref.update(providerThreadByNativeSessionId, (current) =>
+            new Map(current).set(context.nativeThreadId, updatedProviderThread),
+          );
           yield* emitProviderEvent({
             type: "provider_thread.updated",
             driver,
@@ -7645,35 +7616,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 ? { _meta: { "t3code/turnId": providerTurnId } }
                 : {}),
             };
-            const compacting =
-              flavor.supportsCompaction === true &&
-              context.input.message.text.trim() === (flavor.compactionPrompt ?? "/compact") &&
-              context.input.message.attachments.length === 0;
-            const prompt =
-              compacting && runtime.compactSession !== undefined
-                ? runtime.compactSession().pipe(
-                    Effect.tap((result) => {
-                      const replacement = result.replacement;
-                      const usage = result.contextUsage;
-                      return replacement === undefined
-                        ? Effect.void
-                        : Effect.gen(function* () {
-                            context.compactionBeforeTokenCount = context.contextUsage?.usedTokens;
-                            context.contextUsage = usage ?? null;
-                            context.replacementSession = replacement;
-                            yield* Ref.set(activeSessionId, replacement.sessionId);
-                            yield* setActiveSessionSetup(replacement);
-                            if (usage != null) {
-                              yield* Ref.update(contextUsageBySessionId, (current) =>
-                                new Map(current).set(replacement.sessionId, usage),
-                              );
-                            }
-                          });
-                    }),
-                    Effect.map((result) => result.response),
-                  )
-                : runtime.prompt(promptPayload);
-            yield* prompt.pipe(
+            yield* runtime.prompt(promptPayload).pipe(
               Effect.tap(() =>
                 Ref.update(promptInstructionStates, (current) => {
                   if (promptParts?.instructionState === undefined) return current;
