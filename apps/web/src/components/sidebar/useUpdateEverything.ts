@@ -21,6 +21,7 @@ import {
   collectUpdateEverythingResult,
   describeUpdateEverything,
   runUpdateEverything,
+  type SkippedMachine,
   type UpdateRunMachine,
 } from "./updateEverything.logic";
 import {
