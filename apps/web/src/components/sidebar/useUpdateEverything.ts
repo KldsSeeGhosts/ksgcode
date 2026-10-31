@@ -21,7 +21,6 @@ import {
   collectUpdateEverythingResult,
   describeUpdateEverything,
   runUpdateEverything,
-  type SkippedMachine,
   type UpdateRunMachine,
 } from "./updateEverything.logic";
 import {
@@ -68,18 +67,16 @@ export function useUpdateEverything(
     canMaintain: canUpdateServer(sessionStates[index]!),
     updateState: updateStates[index]!,
   }));
-  // A track switch's target is already published on the fork's release feed.
-  const {
-    targets: behindServers,
-    skipped: unreachable,
-    waitForNpm,
-  } = channelSwitch
-    ? { ...collectChannelSwitchTargets(machines, channelSwitch), waitForNpm: [] }
-    : collectServerUpdateTargets(machines, targetVersion, localUpdateVersion !== null);
-  const published = useCliReleasePublished(waitForNpm.length > 0 ? targetVersion : null);
+  const { targets: behindServers, skipped: unreachable } = channelSwitch
+    ? collectChannelSwitchTargets(machines, channelSwitch)
+    : collectServerUpdateTargets(machines, targetVersion);
+  const unverified = channelSwitch
+    ? []
+    : behindServers.filter((server) => server.selfUpdate !== "desktop-managed");
+  const published = useCliReleasePublished(unverified.length > 0 ? targetVersion : null);
   const servers = published
     ? behindServers
-    : behindServers.filter((server) => !waitForNpm.includes(server));
+    : behindServers.filter((server) => !unverified.includes(server));
   const skipped: ReadonlyArray<SkippedMachine> = [
     ...unreachable,
     ...behindServers
