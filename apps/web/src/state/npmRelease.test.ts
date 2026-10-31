@@ -5,7 +5,6 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { cliReleasePublishedAtom, cliTrackReleaseAtom } from "./npmRelease";
 
 const version = "0.0.46-nightly.20261012.3021";
-
 // FetchHttpClient reads globalThis.fetch once and keeps it, so every test shares this mock.
 const fetchMock = vi.fn<typeof fetch>();
 vi.stubGlobal("fetch", fetchMock);
