@@ -26,7 +26,6 @@ import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
-import * as Cause from "effect/Cause";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -1340,26 +1339,14 @@ describe("AcpRegistryAdapterV2", () => {
       }).pipe(Effect.provide(layerTest), Effect.scoped),
     );
 
-    it.effect("rejects a later-option model before writing any configuration", () =>
+    it.effect("keeps the native default for a stored model absent from the first selector", () =>
       Effect.gen(function* () {
         const opened = yield* openWithStoredSelection({
           setup: { configOptions: modelOptions },
           selectionFrames: [],
           model: "later-model",
         });
-        assert.isTrue(Exit.isFailure(opened));
-        const failure = Exit.isFailure(opened) ? Cause.squash(opened.cause) : undefined;
-        assert.instanceOf(failure, ProviderAdapter.ProviderAdapterOpenSessionError);
-        const rejection = failure instanceof Error ? failure.cause : undefined;
-        assert.instanceOf(rejection, EffectAcpErrors.AcpRequestError);
-        assert.deepInclude(rejection, {
-          code: -32602,
-          data: {
-            configId: "provider",
-            allowedValues: ["gateway", "codex"],
-            receivedValue: "later-model",
-          },
-        });
+        assertOpened(opened);
       }).pipe(Effect.provide(layerTest), Effect.scoped),
     );
   });

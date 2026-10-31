@@ -319,7 +319,7 @@ describe("ACP Registry probe", () => {
     });
   });
 
-  it.effect("captures commands advertised just after session creation", () =>
+  it.live("captures commands advertised just after session creation", () =>
     Effect.gen(function* () {
       const result = yield* probeAcpRegistryConfiguration({
         instanceId,
