@@ -181,11 +181,8 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
     env: options.env,
   }).pipe(Effect.mapError((cause) => new PiRpcError({ operation: "spawn", cause })));
 
-  // The spawner releases a child by waiting, without a bound, for its exit
-  // event. A pi process wedged in kernel exit (macOS state `E`) never emits
-  // one, and that uninterruptible wait would hang the caller's scope forever,
-  // including provider status refresh. The spawn gets its own scope, and the
-  // caller stops waiting on its release after a bound.
+  // A Pi process wedged in kernel exit never emits the exit event its spawner
+  // awaits. Bound release of a separate scope so status refresh cannot hang.
   const processScope = yield* Scope.make();
   yield* Scope.addFinalizer(
     scope,

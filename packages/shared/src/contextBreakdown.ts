@@ -1,12 +1,6 @@
 /**
- * Context window breakdown for providers that report only a total.
- *
- * Providers such as Codex and the ACP agents tell us how many tokens the
- * context holds, not what it holds. The server sizes the thread's own items
- * (messages, tool calls and output, reasoning, edits) and lets the reported
- * total decide how much is left over for the system prompt and tool schemas.
- * Sizes are character counts, so the split is an estimate, and rows built here
- * are marked `estimated` or `inferred`.
+ * Providers report a total, not its composition. Character-based item sizes
+ * estimate the split; the reported total bounds the inferred remainder.
  */
 import type { ContextBreakdownRow, OrchestrationV2TurnItem } from "@t3tools/contracts";
 

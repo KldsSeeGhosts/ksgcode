@@ -1,11 +1,9 @@
 import type { RuntimeMode } from "@t3tools/contracts";
 
 /**
- * OMP reads its approval policy at process launch, not from ACP session modes.
- * Explicit flags prevent Supervised from inheriting a local yolo configuration.
- * Remove conflicting launch flags first: --auto-approve overrides even a later
- * --approval-mode in OMP. OMP has no Auto classifier, so a stale Auto selection
- * falls back to asking rather than gaining Full access.
+ * OMP reads approval policy at launch; --auto-approve overrides even a later
+ * --approval-mode. Remove both before setting policy so Supervised cannot
+ * inherit yolo settings. Unsupported Auto falls back to asking.
  */
 export function ompApprovalArgs(
   args: ReadonlyArray<string>,

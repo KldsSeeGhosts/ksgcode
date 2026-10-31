@@ -1,11 +1,3 @@
-/**
- * OMP runs its ACP server through the shared ACP Registry machinery for
- * discovery, sign-in, and live commands, under its own driver kind so it can
- * add what the registry's spec-only path cannot: native compaction, approval
- * flags, terminal-output normalization, and the context meter.
- *
- * @module provider-omp/server/driver
- */
 import { ProviderDriverKind } from "@t3tools/contracts";
 import {
   localAcpAgentRegistrySettings,

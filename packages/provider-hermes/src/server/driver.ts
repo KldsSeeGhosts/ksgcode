@@ -1,11 +1,3 @@
-/**
- * Hermes runs its ACP server through the shared ACP Registry machinery for
- * discovery, sign-in, and live commands, under its own driver kind so it can
- * add what the registry's spec-only path cannot: native compaction and the
- * context meter.
- *
- * @module provider-hermes/server/driver
- */
 import { ProviderDriverKind } from "@t3tools/contracts";
 import {
   localAcpAgentRegistrySettings,

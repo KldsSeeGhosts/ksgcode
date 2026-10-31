@@ -21,11 +21,8 @@ function field(value: unknown, key: string): unknown {
 }
 
 /**
- * A user `/compact` reaches Hermes as the flavor's `/compress` prompt, its
- * completed turn projects one synthetic compaction item, and the next turn
- * still runs. The transcript's `compaction.prompt` expectation matches
- * `/compress` exactly, so the replay peer fails the run if the adapter ever
- * sends `/compact` (or anything else) instead.
+ * The replay peer requires `/compress` exactly, so forwarding `/compact`
+ * instead cannot silently pass this fixture.
  */
 export function assertHermesCompactionOutput(
   result: OrchestratorV2ScenarioResult,

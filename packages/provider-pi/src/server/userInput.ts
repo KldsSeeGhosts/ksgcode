@@ -30,6 +30,7 @@ export function piQuestionnaireQuestion(
         const label = piRecordString(option, "label");
         const description = piRecordString(option, "description");
         if (label === undefined || description === undefined) break;
+        // oxlint-disable-next-line t3code/no-em-dash-copy -- Matches Pi's native option serialization, not product copy.
         const value = `${index + 1}. ${label} — ${description}`;
         if (!multiSelect && values[index] !== value) break;
         lines.push(value);

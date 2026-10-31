@@ -1,11 +1,3 @@
-/**
- * Dedicated ACP agent drivers reuse the ACP Registry's local-command machinery
- * (discovery, authentication, live commands and configuration) under their own
- * driver kind. A profile carries everything that differs from the registry
- * itself, so agent-specific behavior stays in the agent's own package.
- *
- * @module provider-acp-registry/server/agentProfile
- */
 import type {
   CustomModelSetting,
   ProviderDriverKind,
