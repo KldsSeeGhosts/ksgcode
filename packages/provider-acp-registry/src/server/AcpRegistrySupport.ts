@@ -669,7 +669,13 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   const registryFetchedAtMs = yield* Ref.make<number | undefined>(undefined);
   const registryRevision = yield* Ref.make(0);
   const registrySemaphore = yield* Semaphore.make(1);
-  const installSemaphore = yield* Semaphore.make(1);
+  // Long installs must only block operations on the same agent.
+  const installPermits = new Map<string, Semaphore.Semaphore>();
+  const withInstallPermit = (agentId: string) => {
+    const permit = installPermits.get(agentId) ?? Semaphore.makeUnsafe(1);
+    installPermits.set(agentId, permit);
+    return permit.withPermits(1);
+  };
   const preparedBinaryReservations = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
 
   const managerBinDirectory = Effect.fn("AcpRegistryCatalog.managerBinDirectory")(function* (
@@ -1672,13 +1678,13 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       const distribution = yield* compatibleDistribution(agent, "auto");
       if (distribution.kind === "binary") {
         // Only explicit command overrides may use PATH copies with different ACP capabilities.
-        yield* installSemaphore.withPermits(1)(
+        yield* withInstallPermit(agent.id)(
           installBinary(agent, distribution.binaryTarget!).pipe(
             Effect.tap(() => reservePreparedBinary(agent.id)),
           ),
         );
       } else {
-        yield* installSemaphore.withPermits(1)(
+        yield* withInstallPermit(agent.id)(
           ensureGlobalPackage(agent, distribution.kind, distribution.packageName!, hostEnvironment),
         );
       }
@@ -1772,7 +1778,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       }
 
       if (distribution.kind === "binary") {
-        return yield* installSemaphore.withPermits(1)(
+        return yield* withInstallPermit(agent.id)(
           Effect.gen(function* () {
             const paths = binaryPaths(agent, distribution.binaryTarget!);
             if (paths === undefined) {
@@ -1884,7 +1890,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
         command = resolvedOverride;
         args = distribution.args;
       } else if (distribution.kind === "npx" || distribution.kind === "uvx") {
-        const installed = yield* installSemaphore.withPermits(1)(
+        const installed = yield* withInstallPermit(agent.id)(
           ensureGlobalPackage(
             agent,
             distribution.kind,
@@ -1897,7 +1903,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
         commandBinDirectory = installed.binDirectory;
       } else {
         const target = distribution.binaryTarget!;
-        command = yield* installSemaphore.withPermits(1)(
+        command = yield* withInstallPermit(agent.id)(
           installBinary(agent, target).pipe(
             Effect.tap(() => consumePreparedBinaryReservation(agent.id)),
           ),
@@ -1930,7 +1936,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   const uninstallManagedBinary: AcpRegistryCatalog["Service"]["uninstallManagedBinary"] = (input) =>
     hostSettings
       .withSnapshot((settings) =>
-        installSemaphore.withPermits(1)(
+        withInstallPermit(input.agentId)(
           Effect.gen(function* () {
             const safeAgentId = yield* decodeBoundedAgentId(input.agentId).pipe(
               Effect.mapError(

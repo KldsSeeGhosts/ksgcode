@@ -3360,21 +3360,13 @@ function piQuestion(
     if (structured !== undefined) return structured;
   }
   // Extensions may send a blank placeholder, which is not a valid question.
-  const question =
-    [recordString(event, "message"), recordString(event, "placeholder")].find(
-      (text) => text !== undefined && text.trim().length > 0,
-    ) ?? title;
+  const detail = [recordString(event, "message"), recordString(event, "placeholder")].find(
+    (text) => text !== undefined && text.trim().length > 0,
+  );
   return {
     id: questionId,
-    header:
-      question !== title
-        ? title
-        : method === "select"
-          ? "Select an option"
-          : method === "editor"
-            ? "Edit text"
-            : "Enter a value",
-    question,
+    header: detail === undefined ? "Question" : title,
+    question: detail ?? title,
     ...(method === "editor" ? { initialAnswer: recordString(event, "prefill") ?? "" } : {}),
     options,
   };
