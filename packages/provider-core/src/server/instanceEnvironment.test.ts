@@ -84,6 +84,7 @@ describe("mergeProviderInstanceEnvironment", () => {
 
   it.effect("replaces every inherited spelling of a name on Windows, and only there", () =>
     Effect.gen(function* () {
+      const path = yield* Path.Path;
       const merge = (platform: NodeJS.Platform) =>
         mergeProviderInstanceEnvironment(
           [{ name: "Https_Proxy", value: "http://gateway", sensitive: false }],
@@ -94,11 +95,8 @@ describe("mergeProviderInstanceEnvironment", () => {
         yield* mergeProviderInstanceEnvironment(
           [{ name: "Codex_Home", value: "~/corp", sensitive: false }],
           {},
-        ).pipe(
-          Effect.provideService(HostProcess.Platform, "win32"),
-          Effect.provideService(HostProcess.HomeDirectory, "/home/ada"),
-        ),
-      ).toEqual({ CODEX_HOME: "/home/ada/corp" });
+        ).pipe(Effect.provideService(HostProcess.Platform, "win32")),
+      ).toEqual({ CODEX_HOME: path.join("/home/ada", "corp") });
       // Upper case sorts first, so it also wins where a spawn merges the parent environment back.
       expect(yield* merge("win32")).toEqual({ HTTPS_PROXY: "http://gateway", PATH: "/bin" });
       expect(yield* merge("linux")).toEqual({
@@ -106,6 +104,9 @@ describe("mergeProviderInstanceEnvironment", () => {
         Https_Proxy: "http://gateway",
         PATH: "/bin",
       });
-    }),
+    }).pipe(
+      Effect.provideService(HostProcess.HomeDirectory, "/home/ada"),
+      Effect.provide(NodeServices.layer),
+    ),
   );
 });
