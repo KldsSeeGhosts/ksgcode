@@ -6935,9 +6935,12 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             // Advertised values union models; skip per-model rejections instead of failing session open.
             const option = configOptions.find((candidate) => candidate.id === selection.id);
             // Dedicated drivers bind native permission modes to T3's runtime
-            // policy. A stale model-option pick must not briefly switch a
-            // supervised session to yolo before the policy is reapplied.
-            if (policyMode !== undefined && option?.category === "mode") continue;
+            // policy. Without a managed ceiling a stale model-option pick must
+            // not briefly switch a supervised session to yolo before the policy
+            // is reapplied; with one, the ceiling filter already gated the pick.
+            if (policyMode !== undefined && ceiling === undefined && option?.category === "mode") {
+              continue;
+            }
             if (
               option !== undefined &&
               option.type === "select" &&
@@ -6964,7 +6967,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           }
           const modeState = yield* runtime.getModeState;
           if (
-            policyMode === undefined &&
+            (policyMode === undefined || ceiling !== undefined) &&
             modeSelection !== undefined &&
             typeof modeSelection.value === "string" &&
             modeState?.availableModes.some((mode) => mode.id === modeSelection.value) === true &&
