@@ -40,7 +40,9 @@ const update = makePackageManagedProviderMaintenanceResolver({
   },
 });
 
-const readUpdateChannel = Effect.fn("ClaudeMaintenance.readUpdateChannel")(function* () {
+const readUpdateChannel = Effect.fn("ClaudeMaintenance.readUpdateChannel")(function* (
+  configDir?: string,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const environment = yield* HostProcess.Environment;
@@ -53,8 +55,8 @@ const readUpdateChannel = Effect.fn("ClaudeMaintenance.readUpdateChannel")(funct
         : "/etc/claude-code";
   const dropInDirectory = path.join(managedDirectory, "managed-settings.d");
   const dropIns = yield* fs.readDirectory(dropInDirectory).pipe(Effect.orElseSucceed(() => []));
-  // The updater inherits the server's config directory, not the instance's homePath.
-  const configDirectory = yield* resolveClaudeHomePath({ homePath: "" }, environment);
+  const configDirectory =
+    configDir ?? (yield* resolveClaudeHomePath({ homePath: "" }, environment));
   const settingsPaths = [
     path.join(configDirectory, "settings.json"),
     path.join(managedDirectory, "managed-settings.json"),
@@ -73,32 +75,40 @@ const readUpdateChannel = Effect.fn("ClaudeMaintenance.readUpdateChannel")(funct
   return channels.findLast((channel) => channel !== undefined) ?? "latest";
 });
 
-const resolveClaudeMaintenance = Effect.fn("ClaudeMaintenance.resolve")(function* (
-  capabilities: ProviderMaintenanceCapabilities,
-) {
-  if (capabilities.update?.lockKey !== "claudeAgent-native") return capabilities;
-  const channel = yield* readUpdateChannel();
-  const client = yield* HttpClient.HttpClient;
-  const url = `${NATIVE_RELEASES}/${channel}`;
-  return {
-    ...capabilities,
-    latestVersion: null,
-    latestVersionCacheKey: url,
-    lookupLatestVersion: client.get(url).pipe(
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap((response) => response.text),
-      Effect.map((text) => text.trim()),
-      Effect.flatMap(Schema.decodeUnknownEffect(NativeVersion)),
-      Effect.timeoutOption("4 seconds"),
-      Effect.map(Option.getOrNull),
-      Effect.orElseSucceed(() => null),
-    ),
-  };
-});
+const resolveClaudeMaintenance = (configDir?: string) =>
+  Effect.fn("ClaudeMaintenance.resolve")(function* (capabilities: ProviderMaintenanceCapabilities) {
+    if (capabilities.update?.lockKey !== "claudeAgent-native") return capabilities;
+    const channel = yield* readUpdateChannel(configDir);
+    const client = yield* HttpClient.HttpClient;
+    const url = `${NATIVE_RELEASES}/${channel}`;
+    const update = configDir
+      ? {
+          ...capabilities.update,
+          env: { ...capabilities.update.env, CLAUDE_CONFIG_DIR: configDir },
+        }
+      : capabilities.update;
+    return {
+      ...capabilities,
+      update,
+      latestVersion: null,
+      latestVersionCacheKey: url,
+      lookupLatestVersion: client.get(url).pipe(
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap((response) => response.text),
+        Effect.map((text) => text.trim()),
+        Effect.flatMap(Schema.decodeUnknownEffect(NativeVersion)),
+        Effect.timeoutOption("4 seconds"),
+        Effect.map(Option.getOrNull),
+        Effect.orElseSucceed(() => null),
+      ),
+    };
+  });
 
 export const makeClaudeMaintenanceResolution = Effect.fn("ClaudeMaintenance.make")(function* (
   options: Parameters<typeof resolveProviderMaintenanceCapabilitiesEffect>[1],
+  configDir?: string,
 ) {
+  const resolvedConfigDir = configDir ?? options?.env?.CLAUDE_CONFIG_DIR;
   const services = yield* Effect.context<
     ProviderMaintenanceResolverServices | HttpClient.HttpClient
   >();
@@ -109,7 +119,7 @@ export const makeClaudeMaintenanceResolution = Effect.fn("ClaudeMaintenance.make
   );
   const resolve: typeof resolveInstallation = (refreshOptions) =>
     resolveInstallation(refreshOptions).pipe(
-      Effect.flatMap(resolveClaudeMaintenance),
+      Effect.flatMap(resolveClaudeMaintenance(resolvedConfigDir)),
       Effect.provideContext(services),
     );
   return resolve;

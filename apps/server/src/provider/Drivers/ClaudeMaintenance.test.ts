@@ -107,6 +107,20 @@ const fixture = Effect.fn("ClaudeMaintenance.test.fixture")(function* (
         ...(programFiles ? { PROGRAMFILES: programFiles } : {}),
       }),
     ),
+    makeResolutionCustom: (customConfigDir: string) =>
+      makeClaudeMaintenanceResolution({ binaryPath, env: { PATH: "" } }, customConfigDir).pipe(
+        Effect.provideService(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() => Effect.die("version checks must not run a subprocess")),
+        ),
+        Effect.provideService(FileSystem.FileSystem, testFs),
+        Effect.provideService(HostProcess.Platform, platform),
+        Effect.provideService(HostProcess.Environment, {
+          PATH: "",
+          CLAUDE_CONFIG_DIR: configDirectory,
+          ...(programFiles ? { PROGRAMFILES: programFiles } : {}),
+        }),
+      ),
   };
 });
 
@@ -402,5 +416,43 @@ it.layer(NodeServices.layer)("ClaudeMaintenance", (it) => {
       expect((yield* Fiber.join(pending)).versionAdvisory?.status).toBe("unknown");
       expect(requests).toBe(1);
     }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "honors instance-specific configDir and populates CLAUDE_CONFIG_DIR in update action",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture();
+        const customConfigDir = yield* f.fs.makeTempDirectoryScoped();
+        yield* f.fs.writeFileString(
+          `${customConfigDir}/settings.json`,
+          JSON.stringify({ autoUpdatesChannel: "stable" }),
+        );
+        const requests: string[] = [];
+        const client = HttpClient.make((request) => {
+          requests.push(request.url);
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(request.url.endsWith("/stable") ? "2.1.308" : "2.1.315"),
+            ),
+          );
+        });
+        const resolve = yield* f
+          .makeResolutionCustom(customConfigDir)
+          .pipe(Effect.provideService(HttpClient.HttpClient, client));
+        const capabilities = yield* resolve();
+        expect(capabilities.update?.env?.CLAUDE_CONFIG_DIR).toBe(customConfigDir);
+        const versions = yield* ProviderLatestVersions.make();
+        const enriched = yield* enrichProviderSnapshotWithVersionAdvisory(
+          snapshot,
+          capabilities,
+        ).pipe(
+          Effect.provideService(HttpClient.HttpClient, client),
+          Effect.provideService(ProviderLatestVersions.ProviderLatestVersions, versions),
+        );
+        expect(requests).toEqual(["https://downloads.claude.ai/claude-code-releases/stable"]);
+        expect(enriched.versionAdvisory?.latestVersion).toBe("2.1.308");
+      }).pipe(Effect.scoped),
   );
 });

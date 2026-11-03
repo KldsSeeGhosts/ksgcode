@@ -121,17 +121,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
       enabled,
       binaryPath: expandHomePath(config.binaryPath, yield* HostProcess.HomeDirectory),
     } satisfies ClaudeSettings;
-    const resolveMaintenance = yield* makeClaudeMaintenanceResolution({
-      binaryPath: effectiveConfig.binaryPath,
-      env: processEnv,
-    }).pipe(
+    const configDir = yield* resolveClaudeHomePath(effectiveConfig, processEnv);
+    const resolveMaintenance = yield* makeClaudeMaintenanceResolution(
+      {
+        binaryPath: effectiveConfig.binaryPath,
+        env: processEnv,
+      },
+      configDir,
+    ).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
     const continuationGroupKey = yield* makeClaudeContinuationGroupKey(effectiveConfig, processEnv);
-    const configDir = yield* resolveClaudeHomePath(effectiveConfig, processEnv);
     const accountConfigPath = yield* ClaudeResetCredits.claudeAccountConfigPath(
       effectiveConfig.homePath.trim() || processEnv.CLAUDE_CONFIG_DIR?.trim()
         ? configDir
