@@ -228,7 +228,7 @@ export const makeCliproxyApi = Effect.gen(function* () {
     const result = yield* cpaSummaryToAccounts(
       summary,
       files._tag === "Success" ? files.success.files : [],
-    ).pipe(Effect.provideService(Crypto.Crypto, crypto));
+    ).pipe(Effect.provideService(Digest.Digest, digest));
     return {
       ...result,
       ...(files._tag === "Failure"

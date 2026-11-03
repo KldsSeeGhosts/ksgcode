@@ -16,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 import { pendingBackgroundTurnItems } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { resolveSelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeRuntime";
+import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as DateTime from "effect/DateTime";
@@ -1412,14 +1413,21 @@ describe("AcpRegistryAdapterV2", () => {
       }).pipe(Effect.provide(layerTest), Effect.scoped),
     );
 
-    it.effect("keeps the native default for a stored model absent from the first selector", () =>
+    it.effect("rejects a later-option model before writing any configuration", () =>
       Effect.gen(function* () {
         const opened = yield* openWithStoredSelection({
           setup: { configOptions: modelOptions },
           selectionFrames: [],
           model: "later-model",
         });
-        assertOpened(opened);
+        assert.isTrue(Exit.isFailure(opened));
+        const failure = Exit.isFailure(opened) ? Cause.squash(opened.cause) : undefined;
+        assert.instanceOf(failure, ProviderAdapter.ProviderAdapterOpenSessionError);
+        const rejection = failure instanceof Error ? failure.cause : undefined;
+        assert.deepInclude(rejection, {
+          _tag: "AcpModelSelectionError",
+          model: "later-model",
+        });
       }).pipe(Effect.provide(layerTest), Effect.scoped),
     );
   });
@@ -1433,7 +1441,7 @@ describe("AcpRegistryAdapterV2", () => {
       );
       const spawnedArgs: Array<ReadonlyArray<string>> = [];
       const spawner = ChildProcessSpawner.make((command) => {
-        if (ChildProcess.isStandardCommand(command)) spawnedArgs.push(command.args);
+        if (ChildProcess.isStandardCommand(command)) spawnedArgs.push(command.args.map(String));
         return childProcessSpawner.spawn(command);
       });
       for (const [runtimeMode, mode] of [

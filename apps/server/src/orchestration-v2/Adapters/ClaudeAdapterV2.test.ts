@@ -4431,7 +4431,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             '{"env":{"ENABLE_TOOL_SEARCH":"auto"}}',
           );
           assert.equal(
-            yield* openedToolSearch({ env: { ENABLE_TOOL_SEARCH: false } }, project),
+            yield* openedToolSearch('{"env":{"ENABLE_TOOL_SEARCH":"false"}}', project),
             "true",
           );
           assert.equal(

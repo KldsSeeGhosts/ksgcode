@@ -258,7 +258,7 @@ it.effect(
       yield* controller.refreshMethods!;
       const state = yield* controller.subscribe("owner").pipe(Stream.runHead);
       assert.deepEqual(Option.getOrThrow(state).methods, []);
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect(
@@ -396,7 +396,7 @@ it.effect("signs in when a self-handled method has no ACP authenticate handler",
     yield* h.phase("succeeded");
     assert.deepEqual(h.started, [2]);
     assert.deepEqual(h.changed, [true]);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );
 
 it.effect("keeps failing when the agent rejects an explicit authenticate", () =>
@@ -417,5 +417,5 @@ it.effect("keeps failing when the agent rejects an explicit authenticate", () =>
     assert.deepEqual(h.authenticated, ["browser"]);
     assert.deepEqual(h.started, []);
     assert.deepEqual(h.changed, []);
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))),
 );

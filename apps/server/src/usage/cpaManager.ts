@@ -5,7 +5,7 @@ import {
   type ServerProviderUsageWindow,
   type UsageLimitSourceAccount,
 } from "@t3tools/contracts";
-import * as Crypto from "effect/Crypto";
+import * as Digest from "effect/crypto/Digest";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
 import * as Option from "effect/Option";
@@ -176,7 +176,7 @@ export const cpaSummaryToAccounts = Effect.fn("cpaSummaryToAccounts")(function* 
   summary: typeof CpaQuotaSummary.Type,
   files: typeof CpaAuthFiles.Type.files,
 ) {
-  const crypto = yield* Crypto.Crypto;
+  const digestService = yield* Digest.Digest;
   const checkedAt = summary.refreshedAt || DateTime.formatIso(yield* DateTime.now);
   const inventory = yield* Effect.forEach(files, (file) =>
     Effect.gen(function* () {
@@ -186,8 +186,8 @@ export const cpaSummaryToAccounts = Effect.fn("cpaSummaryToAccounts")(function* 
         fileName(file),
         first(file.account, file.email, file.display_account, file.displayAccount),
       ].join("|");
-      const digest = yield* crypto
-        .digest("SHA-256", new TextEncoder().encode(identity))
+      const digest = yield* digestService
+        .digest(Digest.sha256, new TextEncoder().encode(identity))
         .pipe(Effect.orDie);
       return { id: `acct_${Hex.encode(digest).slice(0, 16)}`, file };
     }),

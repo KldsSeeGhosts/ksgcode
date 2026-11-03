@@ -377,7 +377,7 @@ describe("ACP Registry probe", () => {
             }),
         }),
       ),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       Effect.scoped,
     ),
   );
