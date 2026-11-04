@@ -164,9 +164,8 @@ describe("readAntigravityUsage", () => {
         "reseller/gemini-2.5-pro": { ...standard, input_cost_per_token: 8e-6 },
         "claude-sonnet-5-5": standard,
       });
-      // The shared alias merge fills only missing speed tiers; the conflicting reseller rate stays unresolved.
       assert.strictEqual(lookupRate(rates, "gemini-4-argon")?.inputCostPerToken, 2e-6);
-      assert.isNull(lookupRate(rates, "gemini-2.5-pro"));
+      assert.strictEqual(lookupRate(rates, "gemini-2.5-pro")?.inputCostPerToken, 2e-6);
       const read = records(result);
       assert.deepStrictEqual(
         read.map((record) => record.rateModel),

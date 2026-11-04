@@ -233,6 +233,13 @@ export function createPreviewStreamClient(
   const reconnect = () => {
     retryTimer = setTimeout(connect, Math.min(500 * 2 ** failures++, 10_000));
   };
+  // The server re-offers a picker still open, under a new id, when this viewer reattaches.
+  const withdrawFileChooser = () => {
+    if (fileChooser === null) return;
+    fileChooser = null;
+    events.onFileChooser?.(null);
+  };
+
   const connect = () => {
     if (stopped) return;
     const ws = new WebSocket(url);
@@ -246,6 +253,7 @@ export function createPreviewStreamClient(
       readyTimer = null;
       socket = null;
       control = null;
+      withdrawFileChooser();
       events.onConnectedChange(false);
       ws.close();
       reconnect();
@@ -368,6 +376,7 @@ export function createPreviewStreamClient(
       clearReadyTimer();
       socket = null;
       control = null;
+      withdrawFileChooser();
       if (opened) events.onConnectedChange(false);
       if (stopped) return;
       if (event.code === 4404) {
@@ -408,6 +417,7 @@ export function createPreviewStreamClient(
       const ws = socket;
       socket = null;
       control = null;
+      withdrawFileChooser();
       ws?.close();
     },
   };

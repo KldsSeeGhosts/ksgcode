@@ -107,6 +107,31 @@ describe("preview stream control", () => {
     expect(client.send({ type: "dialog", accept: false })).toBe(false);
     client.stop();
   });
+
+  it("withdraws an offered file picker when the stream drops or stops", () => {
+    const onFileChooser = vi.fn();
+    const events = {
+      onFrame: vi.fn(),
+      onFileChooser,
+      onViewport: vi.fn(),
+      onConnectedChange: vi.fn(),
+      onUnauthorized: vi.fn(),
+    };
+    const client = createPreviewStreamClient(target, events);
+    const socket = FakeSocket.current;
+    socket.dispatchEvent(new Event("open"));
+    socket.message(JSON.stringify({ type: "fileChooser", id: "c1", multiple: false, accept: "" }));
+    socket.dispatchEvent(Object.assign(new Event("close"), { code: 1012 }));
+    expect(onFileChooser).toHaveBeenLastCalledWith(null);
+    client.stop();
+
+    const restarted = createPreviewStreamClient(target, events);
+    FakeSocket.current.message(
+      JSON.stringify({ type: "fileChooser", id: "c2", multiple: false, accept: "" }),
+    );
+    restarted.stop();
+    expect(onFileChooser).toHaveBeenLastCalledWith(null);
+  });
 });
 
 describe("preview stream downloads", () => {
@@ -181,24 +206,30 @@ describe("preview stream readiness", () => {
 
   const connect = () => {
     const onConnectedChange = vi.fn();
+    const onFileChooser = vi.fn();
     const client = createPreviewStreamClient(target, {
       onFrame: vi.fn(),
       onControl: vi.fn(),
       onViewport: vi.fn(),
       onConnectedChange,
+      onFileChooser,
       onUnauthorized: vi.fn(),
     });
-    return { client, socket: FakeSocket.current, onConnectedChange };
+    return { client, socket: FakeSocket.current, onConnectedChange, onFileChooser };
   };
 
   it.each([false, true])(
     "replaces a connection with no frame even if it opened (%s)",
     async (opened) => {
-      const { client, socket, onConnectedChange } = connect();
+      const { client, socket, onConnectedChange, onFileChooser } = connect();
       if (opened) socket.dispatchEvent(new Event("open"));
+      socket.message(
+        JSON.stringify({ type: "fileChooser", id: "c1", multiple: false, accept: "" }),
+      );
       await vi.advanceTimersByTimeAsync(15_000);
       expect(socket.readyState).toBe(3);
       expect(onConnectedChange).toHaveBeenLastCalledWith(false);
+      expect(onFileChooser).toHaveBeenLastCalledWith(null);
       await vi.advanceTimersByTimeAsync(500);
       expect(FakeSocket.current).not.toBe(socket);
       client.stop();

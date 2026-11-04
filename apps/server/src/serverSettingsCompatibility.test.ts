@@ -1,12 +1,14 @@
 import { assert, it } from "@effect/vitest";
 import {
   DEFAULT_SERVER_SETTINGS,
+  SecretProviderId,
   UsageLimitSourceConfig,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import { projectServerSettingsForClient } from "./serverSettings.ts";
+import { SECRET_REDACTED } from "./settingsSecrets.ts";
 
 const upstreamSettings = Schema.Struct({
   usageLimitSources: Schema.Record(
@@ -36,9 +38,11 @@ const settings = {
 
 it("keeps upstream mobile settings decodable without changing stored CPA sources", () => {
   assert.throws(() =>
-    Schema.decodeUnknownSync(upstreamSettings)(projectServerSettingsForClient(settings, true)),
+    Schema.decodeUnknownSync(upstreamSettings)(
+      projectServerSettingsForClient(settings, true, { secretReferences: false }),
+    ),
   );
-  const projected = projectServerSettingsForClient(settings, false);
+  const projected = projectServerSettingsForClient(settings, false, { secretReferences: false });
   const decoded = Schema.decodeUnknownSync(upstreamSettings)(projected);
   assert.deepEqual(Object.keys(decoded.usageLimitSources), [proxyId]);
   assert.notInclude(JSON.stringify(projected), "proxy-secret");
@@ -46,8 +50,25 @@ it("keeps upstream mobile settings decodable without changing stored CPA sources
   assert.propertyVal(settings.usageLimitSources[managerId], "managementKey", "manager-secret");
 });
 
-it("keeps CPA Manager settings available to clients that advertise support", () => {
-  const projected = projectServerSettingsForClient(settings, true);
-  assert.propertyVal(projected.usageLimitSources[managerId], "kind", "cpa-manager");
-  assert.notInclude(JSON.stringify(projected), "manager-secret");
-});
+it.each([false, true])(
+  "keeps CPA Manager settings available with secret references %s",
+  (secretReferences) => {
+    const reference = { provider: SecretProviderId.make("homelab"), reference: "manager#key" };
+    const projected = projectServerSettingsForClient(
+      {
+        ...settings,
+        usageLimitSources: {
+          ...settings.usageLimitSources,
+          [managerId]: { ...settings.usageLimitSources[managerId]!, managementKey: reference },
+        },
+      },
+      true,
+      { secretReferences },
+    );
+    assert.propertyVal(projected.usageLimitSources[managerId], "kind", "cpa-manager");
+    assert.deepEqual(
+      projected.usageLimitSources[managerId]?.managementKey,
+      secretReferences ? reference : SECRET_REDACTED,
+    );
+  },
+);
