@@ -79,6 +79,16 @@ const decodePackageVersion = Schema.decodeUnknownEffect(
 
 // Keeps pnpm from auto-installing TypeScript, a types-only peer, into the app.
 
+function takeElectronRunAsNode(): string | undefined {
+  const inherited = process.env.ELECTRON_RUN_AS_NODE;
+  delete process.env.ELECTRON_RUN_AS_NODE;
+  return inherited;
+}
+
+function restoreElectronRunAsNode(inherited: string | undefined): void {
+  if (inherited !== undefined) process.env.ELECTRON_RUN_AS_NODE = inherited;
+}
+
 const makeLinuxCliArchiveFixture = Effect.fn("test.makeLinuxCliArchiveFixture")(function* (input: {
   readonly root: string;
   readonly stem: string;
@@ -1164,16 +1174,12 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       }),
     );
 
+    // The probe inherits process.env, and Electron hosts such as T3 Code set this.
+    const inherited = takeElectronRunAsNode();
+
     return Effect.scoped(
       Effect.gen(function* () {
-        // The probe inherits process.env, and Electron hosts such as T3 Code set this.
-        const inherited = process.env.ELECTRON_RUN_AS_NODE;
-        delete process.env.ELECTRON_RUN_AS_NODE;
-        yield* Effect.addFinalizer(() =>
-          Effect.sync(() => {
-            if (inherited !== undefined) process.env.ELECTRON_RUN_AS_NODE = inherited;
-          }),
-        );
+        yield* Effect.addFinalizer(() => Effect.sync(() => restoreElectronRunAsNode(inherited)));
         const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
