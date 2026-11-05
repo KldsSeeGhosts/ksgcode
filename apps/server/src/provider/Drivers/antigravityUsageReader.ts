@@ -188,26 +188,29 @@ const STEP_PAGE_ROWS = 64;
 
 /** The last generation is one model context, unlike the cumulative session usage. */
 export const readAntigravityContextUsage = Effect.fn("readAntigravityContextUsage")(
-  function* (_filename: string) {
+  function* (filename: string) {
     const sql = yield* SqlClient.SqlClient;
     yield* sql.unsafe("PRAGMA busy_timeout = 100");
     const rows = yield* sql.unsafe<{ readonly data: unknown }>(
       "SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1",
     );
     if (rows[0] === undefined) return null;
-    return yield* Effect.try(() => {
-      const usage = metadata(blob(rows[0]!.data), false).usages.at(-1);
-      if (usage === undefined) return null;
-      const inputTokens = numberAt(usage, 2) + numberAt(usage, 4) + numberAt(usage, 5);
-      const outputTokens = Math.max(numberAt(usage, 3), numberAt(usage, 9) + numberAt(usage, 10));
-      if (inputTokens + outputTokens === 0) return null;
-      return {
-        usedTokens: inputTokens + outputTokens,
-        inputTokens,
-        cachedInputTokens: numberAt(usage, 5),
-        outputTokens,
-        reasoningOutputTokens: Math.min(outputTokens, numberAt(usage, 9)),
-      } satisfies ThreadTokenUsageSnapshot;
+    return yield* Effect.try({
+      try: () => {
+        const usage = metadata(blob(rows[0]!.data), false).usages.at(-1);
+        if (usage === undefined) return null;
+        const inputTokens = numberAt(usage, 2) + numberAt(usage, 4) + numberAt(usage, 5);
+        const outputTokens = Math.max(numberAt(usage, 3), numberAt(usage, 9) + numberAt(usage, 10));
+        if (inputTokens + outputTokens === 0) return null;
+        return {
+          usedTokens: inputTokens + outputTokens,
+          inputTokens,
+          cachedInputTokens: numberAt(usage, 5),
+          outputTokens,
+          reasoningOutputTokens: Math.min(outputTokens, numberAt(usage, 9)),
+        } satisfies ThreadTokenUsageSnapshot;
+      },
+      catch: (cause) => new AntigravityDatabaseDecodeError({ path: filename, cause }),
     });
   },
   (effect, filename) =>

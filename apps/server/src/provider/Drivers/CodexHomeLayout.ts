@@ -235,28 +235,32 @@ const ensureSymlink = Effect.fn("CodexHomeLayout.ensureSymlink")(function* (inpu
     linkPath: link,
   });
 
+  const symlinkError = (cause: unknown) =>
+    new CodexShadowHomeFileSystemError({
+      sharedHomePath: input.sharedHomePath,
+      effectiveHomePath: input.effectiveHomePath,
+      operation: "symlink",
+      path: link,
+      targetPath: target,
+      entryName: input.entryName,
+      cause,
+    });
   const createLink = Effect.gen(function* () {
     // Junctions share directories on Windows without requiring symlink privileges.
     if (
       (yield* HostProcess.Platform) === "win32" &&
       (yield* input.fileSystem.stat(target)).type === "Directory"
     ) {
-      return yield* Effect.tryPromise(() => NodeFSP.symlink(target, link, "junction"));
+      return yield* Effect.tryPromise({
+        try: () => NodeFSP.symlink(target, link, "junction"),
+        catch: symlinkError,
+      });
     }
     return yield* input.fileSystem.symlink(target, link);
   }).pipe(
-    Effect.mapError(
-      (cause) =>
-        new CodexShadowHomeFileSystemError({
-          sharedHomePath: input.sharedHomePath,
-          effectiveHomePath: input.effectiveHomePath,
-          operation: "symlink",
-          path: link,
-          targetPath: target,
-          entryName: input.entryName,
-          cause,
-        }),
-    ),
+    Effect.catchTags({
+      PlatformError: (cause) => Effect.fail(symlinkError(cause)),
+    }),
   );
 
   if (state._tag === "NotSymlink") {
