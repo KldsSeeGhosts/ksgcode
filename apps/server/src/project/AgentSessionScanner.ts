@@ -742,8 +742,13 @@ export const make = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
-  const baseDir = path.resolve(serverConfig.baseDir);
-  const worktreesDir = path.resolve(serverConfig.worktreesDir);
+  // Resolve roots so a symlinked temp path cannot hide an excluded directory.
+  const comparisonRoot = (target: string) => {
+    const resolved = path.resolve(target);
+    return fileSystem.realPath(resolved).pipe(Effect.orElseSucceed(() => resolved));
+  };
+  const baseDir = yield* comparisonRoot(serverConfig.baseDir);
+  const worktreesDir = yield* comparisonRoot(serverConfig.worktreesDir);
   const isWindows = (yield* HostProcess.Platform) === "win32";
   const foldWorktreeCase = isWindows;
   const hostEnvironment = yield* HostProcess.Environment;
