@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Button } from "../ui/button";
+import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import {
   buildContextLegend,
   type ContextLegendItem,
   type ContextLegendKind,
-  type ContextWindowSnapshot,
   formatContextWindowTokens,
 } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
