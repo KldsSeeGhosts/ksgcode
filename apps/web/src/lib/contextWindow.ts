@@ -17,7 +17,7 @@ const VISIBLE_BREAKDOWN_ROWS = 5;
  * gave no breakdown, so the card keeps its plain bar.
  */
 export function buildContextLegend(
-  usage: Pick<ContextWindowSnapshot, "breakdown" | "maxTokens">,
+  usage: Pick<ContextWindowSnapshot, "breakdown" | "maxTokens" | "usedTokens">,
 ): ReadonlyArray<ContextLegendItem> | null {
   const rows = usage.breakdown ?? null;
   const maxTokens = usage.maxTokens ?? null;
@@ -46,6 +46,12 @@ export function buildContextLegend(
       tokens: folded.reduce((sum, row) => sum + row.tokens, 0),
       kind: "other",
     });
+  }
+  // A breakdown taken earlier in the turn trails the reported total; show the gap
+  // so the rows add up. Gaps under 1% are estimate noise.
+  const unaccounted = usage.usedTokens - content.reduce((sum, row) => sum + row.tokens, 0);
+  if (unaccounted > usage.usedTokens * 0.01) {
+    items.push({ label: "Uncategorized", tokens: unaccounted, kind: "inferred" });
   }
   if (buffer > 0) items.push({ label: "Buffer", tokens: buffer, kind: "buffer" });
   if (maxTokens !== null && maxTokens > 0) {
