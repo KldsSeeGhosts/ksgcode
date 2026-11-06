@@ -64,6 +64,26 @@ Windows installer is not code-signed, so SmartScreen may ask you to confirm
 it. The macOS app is not notarized, so the first launch may need Finder's
 Open command.
 
+### Linux
+
+KSG releases provide AppImage and `.deb` downloads for x86_64. Check your
+architecture with `uname -m`, then choose a file ending in `x86_64.AppImage`
+or `amd64.deb`.
+
+To launch an AppImage, open a terminal in its download folder. Replace
+`T3-Code.AppImage` below with the exact filename you downloaded:
+
+```bash
+chmod +x ./T3-Code.AppImage
+./T3-Code.AppImage
+```
+
+The `.deb` updates itself like the other desktop builds. It asks for your
+password to install each update. If your desktop has no password prompt, the
+update fails. Download the new `.deb` and install it the same way.
+
+Package manager distributions of upstream T3 Code do not install KSG Code.
+
 ### The `t3` command
 
 The desktop app includes the `t3` command-line tool. To run it from any
