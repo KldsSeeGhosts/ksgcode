@@ -320,9 +320,9 @@ import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { hasAvailableCompactionProvider } from "./chat/ContextWindowMeter.logic";
 import {
+  activeProviderTokenUsage,
   deriveLatestContextWindowSnapshot,
   hasDismissedResumeCompaction,
-  latestProviderTurnTokenUsage,
   shouldOfferResumeCompaction,
 } from "@t3tools/client-runtime/state/context-window";
 import {
@@ -522,14 +522,10 @@ export default function ChatView(props: ChatViewProps) {
   const threadDetailLoading = threadSyncPhase === "loading";
   // Held back briefly, so a quick sync does not flash a status line at the end of the timeline.
   const delayedThreadSyncPhase = useDelayedStatus(routeThreadKey, threadSyncPhase);
-  const activeProviderThread = serverProjection?.providerThreads.find(
-    (thread) => thread.id === serverProjection.thread.activeProviderThreadId,
-  );
-  const activeThreadLiveTokenUsage = latestProviderTurnTokenUsage(
-    serverProjection?.providerTurns ?? [],
-    serverProjection,
-    activeProviderThread,
-  );
+  const { providerThread: activeProviderThread, usage: activeThreadLiveTokenUsage } =
+    serverProjection === null
+      ? { providerThread: null, usage: null }
+      : activeProviderTokenUsage(serverProjection);
   const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {

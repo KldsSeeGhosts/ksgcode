@@ -42,6 +42,44 @@ export type ContextWindowSnapshot = NullableContextWindowUsage & {
   readonly updatedAt: string;
 };
 
+// Claude's /context estimate runs a little off the API's count. A larger excess
+// means compaction or a rewind shrank the context since the breakdown was taken.
+const BREAKDOWN_ESTIMATE_SLACK = 1.1;
+
+function breakdownStillDescribes(
+  source: OrchestrationV2ProviderTurnTokenUsage,
+  latest: OrchestrationV2ProviderTurnTokenUsage,
+): boolean {
+  if ((source.maxTokens ?? null) !== (latest.maxTokens ?? null)) return false;
+  const content = (source.breakdown ?? []).reduce(
+    (sum, row) => sum + (row.kind === "buffer" ? 0 : row.tokens),
+    0,
+  );
+  return content <= latest.usedTokens * BREAKDOWN_ESTIMATE_SLACK;
+}
+
+/**
+ * Usage for the thread's active provider conversation. After a provider or
+ * conversation switch, the previous one's turns must not stand in for it.
+ */
+export function activeProviderTokenUsage(
+  projection: Pick<
+    ThreadStructure,
+    "thread" | "contextTransfers" | "providerThreads" | "providerTurns"
+  >,
+  inheritForkUsage = true,
+) {
+  const activeProviderThreadId = projection.thread.activeProviderThreadId;
+  const providerThread =
+    projection.providerThreads.find((thread) => thread.id === activeProviderThreadId) ?? null;
+  const usage = latestProviderTurnTokenUsage(
+    projection.providerTurns.filter((turn) => turn.providerThreadId === activeProviderThreadId),
+    inheritForkUsage ? projection : null,
+    providerThread,
+  );
+  return { providerThread, usage };
+}
+
 /** Newest report by timestamp; snapshots order turns by provider thread. */
 export function latestProviderTurnTokenUsage(
   turns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "tokenUsage">>,
@@ -64,7 +102,12 @@ export function latestProviderTurnTokenUsage(
       latestWithBreakdown = tokenUsage;
     }
   }
-  if (latest !== null && latest.breakdown === undefined && latestWithBreakdown !== null) {
+  if (
+    latest !== null &&
+    latest.breakdown === undefined &&
+    latestWithBreakdown !== null &&
+    breakdownStillDescribes(latestWithBreakdown, latest)
+  ) {
     return { ...latest, breakdown: latestWithBreakdown.breakdown };
   }
   if (latest !== null || projection == null || providerThread?.contextUsage != null) return latest;
@@ -306,14 +349,9 @@ export function shouldCompactBeforeSend(input: {
   ) {
     return false;
   }
-  const activeProviderThreadId = projection.thread.activeProviderThreadId;
-  const providerThread = projection.providerThreads.find(
-    (thread) => thread.id === activeProviderThreadId,
-  );
-  const liveUsage = latestProviderTurnTokenUsage(
-    projection.providerTurns.filter((turn) => turn.providerThreadId === activeProviderThreadId),
-    input.selection.instanceId === projection.thread.modelSelection.instanceId ? projection : null,
-    providerThread,
+  const { providerThread, usage: liveUsage } = activeProviderTokenUsage(
+    projection,
+    input.selection.instanceId === projection.thread.modelSelection.instanceId,
   );
   const contextWindow = deriveLatestContextWindowSnapshot(
     input.visibleTurnItems,

@@ -13,6 +13,7 @@ import {
 import { makeThreadProjectionFixture } from "../test-fixtures";
 import { buildContextLegend } from "./contextWindow";
 import {
+  activeProviderTokenUsage,
   deriveLatestContextWindowSnapshot,
   latestProviderTurnTokenUsage,
   shouldOfferResumeCompaction,
@@ -25,12 +26,13 @@ describe("context window legend", () => {
     ({ label, tokens, kind }) as const;
 
   it("has no legend without a breakdown", () => {
-    expect(buildContextLegend({ breakdown: null, maxTokens: 100_000 })).toBeNull();
+    expect(buildContextLegend({ breakdown: null, maxTokens: 100_000, usedTokens: 0 })).toBeNull();
   });
 
   it("folds rows past the fifth into Other and closes with buffer and free space", () => {
     const legend = buildContextLegend({
       maxTokens: 100_000,
+      usedTokens: 36_000,
       breakdown: [
         row("A", 9_000, "used"),
         row("B", 8_000, "used"),
@@ -57,14 +59,35 @@ describe("context window legend", () => {
   it("shows a lone trailing row as itself instead of folding it", () => {
     const legend = buildContextLegend({
       maxTokens: null,
+      usedTokens: 21_000,
       breakdown: [1, 2, 3, 4, 5, 6].map((n) => row(`R${n}`, n * 1_000, "estimated")),
     });
     expect(legend?.map((item) => item.label)).toEqual(["R6", "R5", "R4", "R3", "R2", "R1"]);
   });
 
+  it("shows a trailing breakdown's gap to the reported total and frees only what is unused", () => {
+    const legend = buildContextLegend({
+      maxTokens: 100_000,
+      usedTokens: 60_000,
+      breakdown: [
+        row("Messages", 30_000, "used"),
+        row("System", 10_000, "used"),
+        row("Autocompact buffer", 20_000, "buffer"),
+      ],
+    });
+    expect(legend?.map((item) => [item.label, item.tokens, item.kind])).toEqual([
+      ["Messages", 30_000, "used"],
+      ["System", 10_000, "used"],
+      ["Uncategorized", 20_000, "inferred"],
+      ["Buffer", 20_000, "buffer"],
+      ["Free space", 20_000, "free"],
+    ]);
+  });
+
   it("omits free space when the rows already fill the window", () => {
     const legend = buildContextLegend({
       maxTokens: 10_000,
+      usedTokens: 12_000,
       breakdown: [row("Messages", 12_000, "used")],
     });
     expect(legend?.map((item) => item.kind)).toEqual(["used"]);
@@ -72,18 +95,62 @@ describe("context window legend", () => {
 });
 
 describe("latest provider turn usage breakdown", () => {
-  const usage = (updatedAt: string, breakdown?: ReadonlyArray<never>) => ({
-    tokenUsage: { usedTokens: 1, updatedAt, ...(breakdown ? { breakdown } : {}) },
+  const breakdown = [
+    { label: "Messages", tokens: 40_000, kind: "used" },
+    { label: "Autocompact buffer", tokens: 30_000, kind: "buffer" },
+  ] as const;
+  const usage = (
+    updatedAt: string,
+    usedTokens: number,
+    maxTokens: number,
+    withBreakdown = false,
+  ) => ({
+    tokenUsage: { usedTokens, maxTokens, updatedAt, ...(withBreakdown ? { breakdown } : {}) },
   });
 
   it("carries the newest breakdown onto a newer report that has none", () => {
-    const breakdown = [{ label: "Messages", tokens: 1, kind: "used" }] as never;
     const latest = latestProviderTurnTokenUsage([
-      usage("2026-06-20T00:00:00.000Z", breakdown),
-      usage("2026-06-20T00:05:00.000Z"),
+      usage("2026-06-20T00:00:00.000Z", 40_000, 200_000, true),
+      usage("2026-06-20T00:05:00.000Z", 45_000, 200_000),
     ]);
     expect(latest?.updatedAt).toBe("2026-06-20T00:05:00.000Z");
     expect(latest?.breakdown).toBe(breakdown);
+  });
+
+  it.each([
+    ["the context window changed", 45_000, 1_000_000],
+    ["compaction shrank the context", 12_000, 200_000],
+  ])("drops the older breakdown when %s", (_, usedTokens, maxTokens) => {
+    const latest = latestProviderTurnTokenUsage([
+      usage("2026-06-20T00:00:00.000Z", 40_000, 200_000, true),
+      usage("2026-06-20T00:05:00.000Z", usedTokens, maxTokens),
+    ]);
+    expect(latest?.usedTokens).toBe(usedTokens);
+    expect(latest?.breakdown).toBeUndefined();
+  });
+});
+
+describe("activeProviderTokenUsage", () => {
+  it("ignores the previous provider conversation's usage after a switch", () => {
+    const projection = makeThreadProjectionFixture();
+    const turn = (providerThreadId: string, usedTokens: number, updatedAt: string) =>
+      ({
+        providerThreadId,
+        tokenUsage: { usedTokens, maxTokens: 1_000_000, updatedAt },
+      }) as never;
+    const switched = {
+      ...projection,
+      thread: { ...projection.thread, activeProviderThreadId: "next" as never },
+      providerTurns: [
+        turn("previous", 500_000, "2026-06-20T00:05:00.000Z"),
+        turn("next", 20_000, "2026-06-20T00:00:00.000Z"),
+      ],
+    };
+    expect(activeProviderTokenUsage(switched).usage?.usedTokens).toBe(20_000);
+    expect(
+      activeProviderTokenUsage({ ...switched, providerTurns: switched.providerTurns.slice(0, 1) })
+        .usage,
+    ).toBeNull();
   });
 });
 

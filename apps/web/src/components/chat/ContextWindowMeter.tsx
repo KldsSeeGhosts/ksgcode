@@ -135,7 +135,9 @@ export function ContextWindowMeter(props: {
   const showTotalProcessed = totalProcessedTokens !== null && totalProcessedTokens > 0;
   const legend = buildContextLegend(usage);
   const approximate =
-    usage.breakdown?.some((row) => row.kind === "estimated" || row.kind === "inferred") ?? false;
+    (usage.breakdown?.some((row) => row.kind === "estimated" || row.kind === "inferred") ||
+      legend?.some((item) => item.kind === "inferred")) ??
+    false;
   const isOverloaded = normalizedPercentage > 90;
   const usageColor = isOverloaded
     ? "var(--color-error)"
