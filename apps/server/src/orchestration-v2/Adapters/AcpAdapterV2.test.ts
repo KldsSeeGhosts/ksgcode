@@ -2025,17 +2025,7 @@ describe("AcpAdapterV2", () => {
     {
       scenario: "falls back for an unrelated form",
       schema: { type: "object", properties: { name: { type: "string" } } },
-      questions: [
-        {
-          id: "name",
-          header: "Question 1",
-          question: "Your answer?",
-          options: [],
-          multiSelect: false,
-          allowCustomAnswer: true,
-          required: false,
-        },
-      ],
+      questions: [{ id: "name", header: "Question 1", question: "Your answer?", options: [] }],
       answers: { name: "Ada" },
       result: { action: "accept", content: { name: "Ada" } },
     },
