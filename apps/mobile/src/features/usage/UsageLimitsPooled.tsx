@@ -410,13 +410,11 @@ export function UsageLimitsSection({
   now,
   failedLabels,
   selectedEnvironmentIds,
-  cursorPrompt,
   wide = false,
 }: {
   readonly now: number;
   readonly failedLabels: readonly string[];
   readonly selectedEnvironmentIds: ReadonlySet<EnvironmentId> | null;
-  readonly cursorPrompt?: ReactNode;
   readonly wide?: boolean;
 }) {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
@@ -429,17 +427,11 @@ export function UsageLimitsSection({
   const externalLinks = collectExternalUsageLinks(selected);
   const cpaGroups = collectCpaAccountGroups(selected);
   const colors = useProviderColors();
-  const cursorPromptAt =
-    Math.max(
-      pools.findIndex((pool) => pool.driver === "codex"),
-      pools.findIndex((pool) => pool.driver === "claudeAgent"),
-    ) + 1;
   return (
     <View className="gap-6">
       {pools.length === 0 &&
       notices.length === 0 &&
       failedLabels.length === 0 &&
-      !cursorPrompt &&
       externalLinks.length === 0 &&
       cpaGroups.length === 0 ? (
         <Text className="py-12 text-center text-base text-foreground-muted">
@@ -448,11 +440,10 @@ export function UsageLimitsSection({
             : "No provider on the selected environments reports subscription limits."}
         </Text>
       ) : null}
-      {pools.map((pool, index) => {
+      {pools.map((pool) => {
         const windows = displayLimitWindows(pool);
         return (
           <Fragment key={pool.driver}>
-            {index === cursorPromptAt ? cursorPrompt : null}
             <View className="gap-3">
               <View className="flex-row items-center gap-2 px-1">
                 {usageProviderKind(pool.driver) ? (
@@ -484,7 +475,6 @@ export function UsageLimitsSection({
           </Fragment>
         );
       })}
-      {cursorPromptAt === pools.length ? cursorPrompt : null}
       <CpaAccounts groups={cpaGroups} now={now} />
       {externalLinks.map((link) => (
         <View key={link.url} className="gap-3 rounded-xl border border-border-subtle p-4">
