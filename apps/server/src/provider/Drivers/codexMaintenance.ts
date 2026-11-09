@@ -84,6 +84,7 @@ export const makeCodexMaintenanceResolver = Effect.fn("makeCodexMaintenanceResol
   const resolver = makePackageManagedProviderMaintenanceResolver({
     provider: ProviderDriverKind.make("codex"),
     npmPackageName: "@openai/codex",
+    mise: { tool: "codex" },
     nativeUpdate: {
       args: ["update"],
       isCommandPath: (commandPath) => codexStandaloneHome(commandPath) !== null,
