@@ -3647,6 +3647,7 @@ export default function ChatView(props: ChatViewProps) {
                                 projectName={activeProject?.title}
                                 compactThreadUnavailable={compactThreadUnavailable}
                                 compactDisabled={compactDisabled}
+                                activeContextWindow={activeContextWindow}
                                 resolvedTheme={resolvedTheme}
                                 settings={settings}
                                 keybindings={keybindings}

@@ -45,6 +45,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
@@ -203,6 +204,7 @@ import {
 } from "./ComposerAttachmentStrip";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
+import { providerSupportsManualCompaction } from "./ContextWindowMeter.logic";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -413,6 +415,7 @@ export interface ChatComposerProps {
 
   compactThreadUnavailable: boolean;
   compactDisabled: boolean;
+  activeContextWindow: ContextWindowSnapshot | null;
 
   resolvedTheme: "light" | "dark";
   settings: UnifiedSettings;
@@ -2206,6 +2209,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onCompactContext();
   };
   const compactThreadContextStable = useStableCallback(compactThreadContext);
+  const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
   const expandMobileComposer = () => {
     if (composerBlurFrameRef.current !== null) {
       window.cancelAnimationFrame(composerBlurFrameRef.current);
@@ -3547,6 +3551,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
+                    activeContextWindow={props.activeContextWindow}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}
                     canInterrupt={canInterrupt}
@@ -3587,6 +3592,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     compactBeforeSendTokens={props.resumeCompactionTokens}
                     keepFullHistory={props.keepFullHistory}
                     onToggleKeepFullHistory={props.onToggleKeepFullHistory}
+                    compactDisabled={compactDisabled || noProviderAvailable || isSendBusy}
+                    compactDisabledReason={null}
+                    {...(compactCommandAvailable
+                      ? { onCompactContext: compactThreadContextStable }
+                      : {})}
                   >
                     {speechInput.available ? (
                       <>
