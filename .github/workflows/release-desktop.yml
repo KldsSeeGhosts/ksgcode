@@ -606,6 +606,20 @@ jobs:
           name: cli-linux-${{ inputs.arch }}
           path: wsl-runtime
 
+      # @electron/get otherwise refetches checksums from the release CDN on every build.
+      - name: Seed macOS Electron checksums
+        if: inputs.platform == 'mac'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./apps/desktop/package.json").dependencies.electron')"
+          dir="$HOME/Library/Caches/electron"
+          mkdir -p "$dir"
+          gh release download "v$version" --repo electron/electron --pattern SHASUMS256.txt \
+            --output "$dir/SHASUMS256.txt-$version" --clobber
+
       - name: Build desktop artifact
         shell: bash
         env:
