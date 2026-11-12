@@ -968,6 +968,10 @@ export const makeAcpAgentDriver = <Settings>(
           Effect.tap(() => controller.refreshMethods ?? Effect.void),
         ),
       },
+      invalidateCaches: (Option.isSome(runtimeCoordinator)
+        ? runtimeCoordinator.value.clearLiveConfiguration(instanceId)
+        : Effect.void
+      ).pipe(Effect.andThen(liveSnapshotSemaphore.withPermit(invalidateEnrichmentCache))),
       orchestrationAdapter,
       textGeneration: makeUnsupportedTextGeneration(),
       acpSessionManagement: {
