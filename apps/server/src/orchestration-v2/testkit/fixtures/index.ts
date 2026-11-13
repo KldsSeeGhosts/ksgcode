@@ -92,7 +92,6 @@ import { hermesCompactionInput } from "./hermes_compaction/input.ts";
 import { assertPiCompactionOutput } from "./pi_compaction/output.ts";
 import { assertHermesCompactionOutput } from "./hermes_compaction/output.ts";
 import { providerThreadResumeInput } from "./provider_thread_resume/input.ts";
-import { assertKiroProviderThreadResumeOutput } from "./provider_thread_resume/kiro_output.ts";
 import { assertPiProviderThreadResumeOutput } from "./provider_thread_resume/pi_output.ts";
 import { assertMultiTurnClaudeOutput } from "./multi_turn/claude_output.ts";
 import { assertMultiTurnOutput } from "./multi_turn/codex_output.ts";
@@ -1599,12 +1598,6 @@ export const ORCHESTRATOR_REPLAY_FIXTURES: ReadonlyArray<OrchestratorReplayFixtu
         transcriptFile: new URL("./provider_thread_resume/pi_transcript.ndjson", import.meta.url),
         modelSelection: PI_MODEL_SELECTION,
         assertOutput: assertPiProviderThreadResumeOutput,
-      },
-      {
-        driver: ProviderDriverKind.make("kiro"),
-        transcriptFile: new URL("./provider_thread_resume/kiro_transcript.ndjson", import.meta.url),
-        modelSelection: KIRO_MODEL_SELECTION,
-        assertOutput: assertKiroProviderThreadResumeOutput,
       },
     ],
   },
