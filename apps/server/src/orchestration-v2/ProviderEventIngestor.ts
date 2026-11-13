@@ -32,7 +32,6 @@ import {
   estimateContextBreakdown,
   makeContextSizeTracker,
 } from "@t3tools/shared/contextBreakdown";
-import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import {
   ProviderTurnAnalytics,
@@ -870,12 +869,7 @@ export const layer: Layer.Layer<
                   );
                   if (created?.event.type !== "thread.created") return storedEvents;
                   const child = created.event.payload;
-                  if (
-                    child.worktreePath === null ||
-                    child.branch === null ||
-                    !isTemporaryWorktreeBranch(child.branch)
-                  )
-                    return storedEvents;
+                  if (child.worktreePath === null || child.branch === null) return storedEvents;
                   // Git renames before scanning committed threads. If that scan missed this
                   // creation, HEAD already has the new name, even if the parent moved away.
                   const branch = yield* git.resolveBranchName(child.worktreePath, "HEAD");
